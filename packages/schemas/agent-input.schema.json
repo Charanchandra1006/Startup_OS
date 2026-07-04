@@ -1,0 +1,44 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://chief.ai/schemas/agent-input.json",
+  "title": "Agent Input Contract",
+  "description": "Specialist agent input object per AIDD §2.1. Every agent invocation receives this structure.",
+  "type": "object",
+  "required": ["goal_context", "scoped_data_access_token", "task_description", "tenant_id"],
+  "properties": {
+    "goal_context": {
+      "type": "string",
+      "description": "Founder's original goal text plus orchestrator's classification/decomposition summary"
+    },
+    "scoped_data_access_token": {
+      "type": "string",
+      "description": "Time-limited JWT granting access only to data sources in the agent's registry scope. Never a standing credential."
+    },
+    "task_description": {
+      "type": "string",
+      "description": "The specific sub-task this agent invocation must complete"
+    },
+    "tenant_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Enforced at every downstream data call. Agent must reject processing if data returns rows outside this tenant."
+    },
+    "prior_context": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "format": "uuid"
+      },
+      "description": "Prior AgentRun IDs in the same goal's task graph determined relevant by the orchestrator"
+    },
+    "playbook_refs": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "format": "uuid"
+      },
+      "description": "PlaybookDocument IDs for RAG context"
+    }
+  },
+  "additionalProperties": false
+}

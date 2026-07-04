@@ -1,0 +1,33 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://chief.ai/schemas/denylist.json",
+  "title": "Hard-Refusal Denylist",
+  "description": "Master Prompt §6.5: These action types can NEVER execute via the automated executor, even if tier classification is buggy. Enforced at the Tool/Integration Gateway layer independently of tier logic.",
+  "type": "object",
+  "required": ["denied_action_types"],
+  "properties": {
+    "denied_action_types": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["action_type", "reason"],
+        "properties": {
+          "action_type": { "type": "string" },
+          "reason": { "type": "string" }
+        }
+      },
+      "minItems": 6,
+      "description": "Must include all 6 hard-denied action types"
+    }
+  },
+  "_static_data": {
+    "denied_action_types": [
+      { "action_type": "contract_sign", "reason": "NG-2: No code path lets an agent sign contracts autonomously" },
+      { "action_type": "wire_transfer", "reason": "NG-2: No code path lets an agent move money autonomously" },
+      { "action_type": "offer_letter_send", "reason": "NG-1: No code path lets an agent make a hiring decision autonomously" },
+      { "action_type": "termination", "reason": "NG-1: No code path lets an agent make a firing decision autonomously" },
+      { "action_type": "compensation_change", "reason": "NG-1/NG-2: Compensation changes require human decision" },
+      { "action_type": "public_statement", "reason": "Irreversible reputational risk requires human decision" }
+    ]
+  }
+}

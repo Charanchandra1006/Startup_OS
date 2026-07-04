@@ -1,0 +1,97 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://chief.ai/schemas/agent-output.json",
+  "title": "Agent Output Contract",
+  "description": "Specialist agent output object per AIDD §2.2. Validated by grounding gate before synthesis.",
+  "type": "object",
+  "required": ["answer", "confidence", "caveats", "model_used", "prompt_version"],
+  "properties": {
+    "answer": {
+      "type": "string",
+      "description": "Founder-facing narrative answer"
+    },
+    "supporting_data": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/SupportingDataEntry"
+      },
+      "description": "Mandatory citation set. Required if answer contains any numeric/factual claim. Validated by grounding test gate (Testing Strategy §1.2)."
+    },
+    "confidence": {
+      "type": "string",
+      "enum": ["low", "medium", "high"],
+      "description": "Calibration checked against historical correction rate (AIDD §7)"
+    },
+    "caveats": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Explicit scope gaps. May be empty array, never omitted."
+    },
+    "suggested_actions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/SuggestedAction"
+      },
+      "description": "Proposals only — this agent never executes"
+    },
+    "model_used": {
+      "type": "string",
+      "description": "Exact model identifier, logged for reproducibility (Testing Strategy §5)"
+    },
+    "prompt_version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "Semver. Logged for regression tracking (AIDD §8)."
+    }
+  },
+  "additionalProperties": false,
+  "definitions": {
+    "SupportingDataEntry": {
+      "type": "object",
+      "required": ["source_system", "source_ref", "value", "retrieved_at"],
+      "properties": {
+        "source_system": {
+          "type": "string",
+          "description": "Which integration/system this data came from (e.g., 'quickbooks', 'linear', 'agent_inference')"
+        },
+        "source_ref": {
+          "type": "string",
+          "description": "Record/entity ID in the source system, or description if agent_inference"
+        },
+        "value": {
+          "description": "The actual data value being cited"
+        },
+        "retrieved_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When this data was retrieved"
+        }
+      },
+      "additionalProperties": false
+    },
+    "SuggestedAction": {
+      "type": "object",
+      "required": ["action_type", "payload", "risk_tier", "rationale"],
+      "properties": {
+        "action_type": {
+          "type": "string",
+          "description": "Platform-defined action type (not agent-defined). e.g., 'send_investor_email', 'publish_job_posting'"
+        },
+        "payload": {
+          "type": "object",
+          "description": "Exact content to be executed. Schema varies by action_type."
+        },
+        "risk_tier": {
+          "type": "string",
+          "enum": ["A", "B", "C", "D"],
+          "description": "Set by platform-level lookup table. Agent's value is VALIDATED and OVERRIDDEN if it disagrees (AIDD GR-04, SGD §2)."
+        },
+        "rationale": {
+          "type": "string",
+          "description": "Why this action is proposed, referencing supporting_data"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

@@ -1,0 +1,60 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: chief-financial-db
+  namespace: chief-system
+spec:
+  serviceName: "chief-financial-db"
+  replicas: 1
+  selector:
+    matchLabels:
+      app: chief-financial-db
+  template:
+    metadata:
+      labels:
+        app: chief-financial-db
+    spec:
+      containers:
+      - name: postgres
+        image: postgres:15
+        ports:
+        - containerPort: 5432
+        env:
+        - name: POSTGRES_DB
+          valueFrom:
+            configMapKeyRef:
+              name: chief-config
+              key: FINANCIAL_DB_NAME
+        - name: POSTGRES_USER
+          valueFrom:
+            secretKeyRef:
+              name: chief-secrets
+              key: FINANCIAL_DB_USER
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: chief-secrets
+              key: FINANCIAL_DB_PASSWORD
+        volumeMounts:
+        - name: financial-db-data
+          mountPath: /var/lib/postgresql/data
+  volumeClaimTemplates:
+  - metadata:
+      name: financial-db-data
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      resources:
+        requests:
+          storage: 10Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: chief-financial-db
+  namespace: chief-system
+spec:
+  selector:
+    app: chief-financial-db
+  ports:
+  - port: 5432
+    targetPort: 5432

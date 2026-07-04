@@ -1,0 +1,22 @@
+{
+  "name": "@chief/api-gateway",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Chief API Gateway — JWT auth, rate limiting, tenant extraction. SAD §2.",
+  "main": "src/server.js",
+  "scripts": {
+    "dev": "node --watch src/server.js",
+    "start": "node src/server.js",
+    "test": "node --test tests/"
+  },
+  "dependencies": {
+    "express": "^4.18.0",
+    "jsonwebtoken": "^9.0.0",
+    "express-rate-limit": "^7.1.0",
+    "helmet": "^7.1.0",
+    "cors": "^2.8.5",
+    "http-proxy-middleware": "^3.0.0",
+    "uuid": "^9.0.0"
+  },
+  "devDependencies": {}
+}

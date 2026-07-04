@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: chief-system
+  labels:
+    name: chief-system
+    environment: development

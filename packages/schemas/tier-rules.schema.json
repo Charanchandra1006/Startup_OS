@@ -1,0 +1,24 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://chief.ai/schemas/tier-rules.json",
+  "title": "Tier Rules Static Mapping",
+  "description": "Platform-level action_type → risk_tier mapping. AIDD GR-04, SGD §2. Source of truth for tier classification.",
+  "type": "object",
+  "properties": {
+    "rules": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["action_type", "risk_tier", "auto_execute_eligible", "is_hard_denied"],
+        "properties": {
+          "action_type": { "type": "string" },
+          "risk_tier": { "type": "string", "enum": ["A", "B", "C", "D"] },
+          "description": { "type": "string" },
+          "auto_execute_eligible": { "type": "boolean" },
+          "is_hard_denied": { "type": "boolean" }
+        }
+      }
+    }
+  },
+  "required": ["rules"]
+}

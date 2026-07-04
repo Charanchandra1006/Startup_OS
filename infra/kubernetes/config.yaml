@@ -1,0 +1,49 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: chief-config
+  namespace: chief-system
+data:
+  ENVIRONMENT: "development"
+  LOG_LEVEL: "DEBUG"
+
+  # Service URLs (internal cluster DNS)
+  ORCHESTRATOR_URL: "http://chief-orchestrator.chief-system.svc.cluster.local:8000"
+  EXECUTION_SERVICE_URL: "http://chief-execution-service.chief-system.svc.cluster.local:8001"
+  TOOL_GATEWAY_URL: "http://chief-tool-gateway.chief-system.svc.cluster.local:8002"
+  APPROVAL_WORKFLOW_URL: "http://chief-approval-workflow.chief-system.svc.cluster.local:8003"
+  AGENT_ECHO_URL: "http://chief-agent-echo.chief-system.svc.cluster.local:8010"
+
+  # Databases
+  OPERATIONAL_DB_HOST: "chief-operational-db.chief-system.svc.cluster.local"
+  OPERATIONAL_DB_PORT: "5432"
+  OPERATIONAL_DB_NAME: "chief_operational"
+
+  FINANCIAL_DB_HOST: "chief-financial-db.chief-system.svc.cluster.local"
+  FINANCIAL_DB_PORT: "5432"
+  FINANCIAL_DB_NAME: "chief_financial"
+
+  DOCUMENTS_DB_HOST: "chief-documents-db.chief-system.svc.cluster.local"
+  DOCUMENTS_DB_PORT: "5432"
+  DOCUMENTS_DB_NAME: "chief_documents"
+
+  # Observability
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://chief-otel-collector.chief-system.svc.cluster.local:4317"
+  OTEL_SERVICE_NAME: "chief"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: chief-secrets
+  namespace: chief-system
+type: Opaque
+stringData:
+  # Base64 encoding is not required when using stringData
+  OPERATIONAL_DB_USER: "chief_app"
+  OPERATIONAL_DB_PASSWORD: "changeme_operational"
+  FINANCIAL_DB_USER: "chief_financial_app"
+  FINANCIAL_DB_PASSWORD: "changeme_financial"
+  DOCUMENTS_DB_USER: "chief_docs_app"
+  DOCUMENTS_DB_PASSWORD: "changeme_documents"
+  JWT_SECRET: "changeme_jwt_secret"
+  VAULT_ENCRYPTION_KEY: "changeme_vault_key_32_bytes_long!"
