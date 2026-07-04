@@ -23,8 +23,19 @@ import uuid
 from datetime import datetime, timezone, timedelta
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Depends, Header
+import os
+import sys
+import asyncpg
+from dotenv import load_dotenv
+load_dotenv(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../.env')))
+from fastapi import FastAPI, HTTPException, Depends, Header, Request
+from fastapi.responses import RedirectResponse, HTMLResponse
 from pydantic import BaseModel, Field
+
+# Ensure packages can be imported
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../packages/shared-types/python')))
+from packages.integrations.google.auth import get_google_flow, handle_google_callback, oauth_state_store
 
 from chief_types.denylist_enforcer import check_denylist, assert_not_denied
 from chief_types.models import RiskTier
@@ -234,6 +245,14 @@ class ToolGateway:
         self._adapters: dict[str, IntegrationAdapter] = {}
         self.tracer = get_tracer("tool-gateway")
         self._register_mock_adapters()
+        
+        # Register real adapters
+        try:
+            from packages.integrations.google import GoogleIntegrationAdapter
+            from vault import vault
+            self.register_adapter("google", GoogleIntegrationAdapter(vault))
+        except ImportError as e:
+            logger.warning(f"Could not load Google adapter: {e}")
 
     def _register_mock_adapters(self):
         """Register mock adapters for Phase 0."""
@@ -428,3 +447,38 @@ async def execute_tool(
 @app.get("/health")
 async def health():
     return {"status": "ok", "service": "tool-gateway"}
+
+
+# ─── Google OAuth Flow ──────────────────────────────────────────────────────────
+
+@app.get("/auth/google/login")
+async def google_login(tenant_id: str, request: Request):
+    try:
+        flow = get_google_flow()
+        authorization_url, state = flow.authorization_url(
+            access_type='offline',
+            include_granted_scopes='true',
+            prompt='consent',
+            state=tenant_id  # Using tenant_id as state for local dev
+        )
+        oauth_state_store[state] = getattr(flow, 'code_verifier', None)
+        return RedirectResponse(authorization_url)
+    except ValueError as e:
+        return HTMLResponse(f"<h1>Configuration Error</h1><p>{e}</p>", status_code=500)
+
+@app.get("/auth/google/callback")
+async def google_callback(state: str, code: str, request: Request):
+    from vault import vault
+    # The callback handles the entire flow: tokens, users DB, integrations DB, and JWT
+    result = await handle_google_callback(state, code, vault.store_credential)
+    
+    token = result["token"]
+    user = result["user"]
+    
+    # Redirect back to the frontend with the JWT (Assuming frontend is on 3001)
+    frontend_url = os.environ.get("FRONTEND_URL", "http://localhost:3001")
+    return RedirectResponse(f"{frontend_url}/auth/callback?token={token}")
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8002)

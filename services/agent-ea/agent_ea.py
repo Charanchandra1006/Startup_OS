@@ -61,7 +61,7 @@ async def fetch_calendar_data(tenant_id: str, token: str) -> dict:
             headers={"Authorization": f"Bearer {token}"},
             json={
                 "action_type": "read_calendar",
-                "provider": "mock_calendar",
+                "provider": "google",
                 "operation": "list_events",
                 "params": {"tenant_id": tenant_id}
             }

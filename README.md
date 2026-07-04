@@ -893,39 +893,26 @@ assert "[CLAIM REMOVED" in result.validated_output.answer
 
 ### Prerequisites
 
-- Docker Desktop (with Kubernetes enabled) or `minikube`
-- `kubectl`
 - Python 3.11+
 - Node.js 20 LTS
 - `pnpm`
+- Neon PostgreSQL Account
 
-### Option A: Kubernetes (Recommended)
+### Option A: Neon PostgreSQL & Alembic (MVP Setup)
+
+We have migrated to a serverless cloud database model using Neon for the MVP/Hackathon.
 
 ```bash
-# 1. Start local K8s
-minikube start
+# 1. Export your Neon connection string
+export DATABASE_URL="postgresql+asyncpg://<user>:<password>@<host>/<database>?ssl=require"
 
-# 2. Apply infrastructure
-kubectl apply -f infra/kubernetes/namespaces.yaml
-kubectl apply -f infra/kubernetes/config.yaml
-kubectl apply -f infra/kubernetes/databases/
+# 2. Run Database Migrations using Alembic
+cd packages/db
+pip install alembic asyncpg
+alembic upgrade head
 
-# 3. Wait for DBs to be ready
-kubectl get pods -n chief-system -w
-
-# 4. Port forward for migrations
-kubectl port-forward svc/chief-operational-db 5432:5432 -n chief-system &
-kubectl port-forward svc/chief-financial-db 5433:5432 -n chief-system &
-kubectl port-forward svc/chief-documents-db 5434:5432 -n chief-system &
-
-# 5. Run migrations
-psql -h localhost -p 5432 -U chief_app -d chief_operational -f packages/db/migrations/operational/001_create_tenants.sql
-# ... (apply all 11 migrations in order)
-
-# 6. Apply roles and seed data
-psql -h localhost -p 5432 -U postgres -d chief_operational -f packages/db/roles/operational_roles.sql
-psql -h localhost -p 5432 -U chief_app -d chief_operational -f packages/db/seed/seed_tier_rules.sql
-psql -h localhost -p 5432 -U chief_app -d chief_operational -f packages/db/seed/seed_dev_tenant.sql
+# 3. Seed demo data (if not done in migration)
+# The initial migration 001_initial_schema automatically seeds the 'AIHealth Inc.' demo company.
 ```
 
 ### Option B: Run Tests Directly (No DB required)

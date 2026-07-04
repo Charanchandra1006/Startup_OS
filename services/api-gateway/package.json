@@ -10,13 +10,15 @@
     "test": "node --test tests/"
   },
   "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "cors": "^2.8.5",
+    "dotenv": "^17.4.2",
     "express": "^4.18.0",
-    "jsonwebtoken": "^9.0.0",
     "express-rate-limit": "^7.1.0",
     "helmet": "^7.1.0",
-    "cors": "^2.8.5",
     "http-proxy-middleware": "^3.0.0",
+    "jsonwebtoken": "^9.0.0",
+    "pg": "^8.22.0",
     "uuid": "^9.0.0"
-  },
-  "devDependencies": {}
+  }
 }
