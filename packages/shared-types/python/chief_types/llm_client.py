@@ -90,11 +90,12 @@ class LLMClient:
         self._init_gemini()
         
         # Determine specific model string
-        gemini_model_id = "gemini-2.5-pro" if "pro" in model_id.lower() else "gemini-2.5-flash"
+        gemini_model_id = "gemini-2.5-flash"
         
         generation_config = genai.types.GenerationConfig(
             temperature=temperature,
-            max_output_tokens=max_tokens,
+            max_output_tokens=max(max_tokens, 8192),
+            response_mime_type="application/json",
         )
         
         model = genai.GenerativeModel(

@@ -1,0 +1,97 @@
+version: '3.8'
+
+x-python-service: &python-service
+  image: python:3.11-slim
+  working_dir: /app
+  volumes:
+    - .:/app
+  environment:
+    - PYTHONUNBUFFERED=1
+    - PYTHONPATH=/app:/app/packages/shared-types/python
+  env_file:
+    - .env
+  command: >
+    bash -c "pip install fastapi uvicorn pydantic asyncpg python-dotenv httpx google-generativeai openai bcrypt pyjwt google-api-python-client google-auth && python $$SCRIPT_PATH"
+
+services:
+  # 1. API Gateway (Node.js)
+  api-gateway:
+    image: node:20-slim
+    working_dir: /app/services/api-gateway
+    volumes:
+      - .:/app
+    environment:
+      - NODE_ENV=development
+      - ORCHESTRATOR_URL=http://orchestrator:8000
+      - EXECUTION_SERVICE_URL=http://execution-service:8001
+      - TOOL_GATEWAY_URL=http://tool-gateway:8002
+      - CORS_ORIGIN=http://localhost:4001
+    env_file:
+      - .env
+    command: >
+      bash -c "npm install && npm start"
+    ports:
+      - "4000:3000"
+
+  # 2. Frontend (Next.js)
+  web:
+    image: node:20-slim
+    working_dir: /app/apps/web
+    volumes:
+      - .:/app
+    environment:
+      - NODE_ENV=development
+    env_file:
+      - .env
+    command: >
+      bash -c "npm install && npm run dev -- -p 4001"
+    ports:
+      - "4001:4001"
+
+  # 3. Orchestrator Service (Python)
+  orchestrator:
+    <<: *python-service
+    environment:
+      - SCRIPT_PATH=services/orchestrator/server.py
+      - PYTHONPATH=/app:/app/packages/shared-types/python
+      - API_GATEWAY_URL=http://api-gateway:3000
+    ports:
+      - "8050:8000"
+
+  # 4. Execution Service (Python)
+  execution-service:
+    <<: *python-service
+    environment:
+      - SCRIPT_PATH=services/execution-service/server.py
+      - PYTHONPATH=/app:/app/packages/shared-types/python
+    ports:
+      - "8051:8001"
+
+  # 5. Tool Gateway (Python)
+  tool-gateway:
+    <<: *python-service
+    environment:
+      - SCRIPT_PATH=services/tool-gateway/tool_gateway.py
+      - PYTHONPATH=/app:/app/packages/shared-types/python
+    ports:
+      - "8052:8002"
+    
+  # 6. Finance Agent (Python)
+  agent-finance:
+    <<: *python-service
+    environment:
+      - SCRIPT_PATH=services/agent-finance/agent_finance.py
+      - PYTHONPATH=/app:/app/packages/shared-types/python
+      - TOOL_GATEWAY_URL=http://tool-gateway:8002
+    ports:
+      - "8061:8011"
+      
+  # 7. EA Agent (Python)
+  agent-ea:
+    <<: *python-service
+    environment:
+      - SCRIPT_PATH=services/agent-ea/agent_ea.py
+      - PYTHONPATH=/app:/app/packages/shared-types/python
+      - TOOL_GATEWAY_URL=http://tool-gateway:8002
+    ports:
+      - "8062:8012"

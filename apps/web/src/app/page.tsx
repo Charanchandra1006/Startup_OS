@@ -1,237 +1,189 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { ApprovalCard, ApprovalRequest } from "../components/ApprovalCard";
-import { GoalExecutionFlow } from "../components/GoalExecutionFlow";
-import { fetchMetrics, fetchInsights, fetchApprovals, submitGoal, decideApproval } from "../lib/api";
+import { AuthScreen } from "@/components/dashboard/AuthScreen";
+import { Sidebar, NavTab } from "@/components/dashboard/Sidebar";
+import { TopNav } from "@/components/dashboard/TopNav";
+import { HealthOverview } from "@/components/dashboard/HealthOverview";
+import { ExecutiveSummary } from "@/components/dashboard/ExecutiveSummary";
+import { CommandCenter } from "@/components/dashboard/CommandCenter";
+import { PendingDecisions } from "@/components/dashboard/PendingDecisions";
+import { ImportantEmails } from "@/components/dashboard/ImportantEmails";
+import { ScheduleTimeline } from "@/components/dashboard/ScheduleTimeline";
+import { TaskHistory } from "@/components/dashboard/TaskHistory";
+import { KnowledgeBase } from "@/components/dashboard/KnowledgeBase";
+import { ChartsSection } from "@/components/dashboard/ChartsSection";
+import { SettingsView } from "@/components/dashboard/SettingsView";
 
-export default function Home() {
-  const [goal, setGoal] = useState("");
-  const [submittedGoal, setSubmittedGoal] = useState("");
-  const [isExecutingFlow, setIsExecutingFlow] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
-
-  const [metrics, setMetrics] = useState<any>(null);
-  const [approvals, setApprovals] = useState<ApprovalRequest[]>([]);
-  const [insights, setInsights] = useState<any[]>([]);
+export default function FounderDashboardPage() {
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [activeTab, setActiveTab] = useState<NavTab>("dashboard");
+  const [founderName, setFounderName] = useState("Charan Chandra");
+  const [founderEmail, setFounderEmail] = useState("charan@visionai.tech");
 
   useEffect(() => {
-    async function loadData() {
-      try {
-        const [metData, insData, appData] = await Promise.all([
-          fetchMetrics().catch(() => null),
-          fetchInsights().catch(() => []),
-          fetchApprovals().catch(() => [])
-        ]);
-        if (metData) setMetrics(metData);
-        if (insData) setInsights(insData);
-        if (appData) setApprovals(appData);
-      } catch (e) {
-        console.error("Failed to load dashboard data", e);
-      } finally {
-        setIsLoading(false);
-      }
+    const savedToken = localStorage.getItem("chief_token");
+    const savedName = localStorage.getItem("chief_user_name");
+    const savedEmail = localStorage.getItem("chief_user_email");
+    if (savedToken) {
+      if (savedName) setFounderName(savedName);
+      if (savedEmail) setFounderEmail(savedEmail);
+      setIsAuthenticated(true);
     }
-    loadData();
   }, []);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!goal.trim()) return;
-    
-    // Trigger the Pitch Demo Flow
-    setSubmittedGoal(goal);
-    setIsExecutingFlow(true);
-    setGoal("");
-
-    // Background submission to standard API (fire and forget for demo)
-    submitGoal(goal).catch(console.error);
+  const getInitials = (name: string) => {
+    const parts = name.trim().split(" ");
+    if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+    return name.slice(0, 2).toUpperCase();
   };
+  const founderInitials = getInitials(founderName);
 
-  const handleApprove = async (id: string) => {
-    await decideApproval(id, "approve");
-    setApprovals(prev => prev.filter(a => a.id !== id));
-  };
-  const handleReject = async (id: string) => {
-    await decideApproval(id, "reject");
-    setApprovals(prev => prev.filter(a => a.id !== id));
+  if (!isAuthenticated) {
+    return (
+      <AuthScreen
+        onLogin={(name, email) => {
+          if (name) setFounderName(name);
+          if (email) setFounderEmail(email);
+          setIsAuthenticated(true);
+        }}
+      />
+    );
+  }
+
+  const renderContent = () => {
+    switch (activeTab) {
+      case "dashboard":
+        return (
+          <div className="space-y-6 animate-in fade-in duration-300">
+            {/* Minimalist Executive Greeting & Pulse Header */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-6 rounded-2xl bg-white border border-neutral-200 shadow-sm">
+              <div className="flex items-center gap-3.5">
+                <div className="h-10 w-10 rounded-xl bg-black text-white flex items-center justify-center font-bold text-sm shadow-xs shrink-0">
+                  {founderInitials}
+                </div>
+                <div>
+                  <h2 className="text-base font-bold text-black tracking-tight">
+                    Good morning, {founderName.split(" ")[0]}.
+                  </h2>
+                  <p className="text-xs text-neutral-500 mt-0.5">
+                    Your 8 autonomous executives are active. 4 critical decisions require sign-off today.
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 self-start sm:self-auto">
+                <span className="px-3 py-1.5 rounded-xl bg-neutral-100 border border-neutral-200 text-black text-xs font-mono font-bold flex items-center gap-2 shadow-2xs">
+                  <span className="h-2 w-2 rounded-full bg-black animate-pulse" />
+                  <span>SYSTEM HEALTH: 100%</span>
+                </span>
+              </div>
+            </div>
+
+            {/* 1. AI Task Command Center (Core Engine) */}
+            <CommandCenter onNavigate={(tab: NavTab) => setActiveTab(tab)} />
+
+            {/* 2. Pending Critical Decisions */}
+            <PendingDecisions />
+
+            {/* 3. Daily Executive Summary */}
+            <ExecutiveSummary />
+
+            {/* 4. Executive Communications & Calendar Schedule */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <ImportantEmails />
+              <ScheduleTimeline />
+            </div>
+          </div>
+        );
+
+      case "command":
+        return (
+          <div className="space-y-8 animate-in fade-in duration-300">
+            <CommandCenter onNavigate={(tab: NavTab) => setActiveTab(tab)} />
+            <TaskHistory />
+          </div>
+        );
+
+      case "tasks":
+        return (
+          <div className="space-y-8 animate-in fade-in duration-300">
+            <PendingDecisions />
+            <TaskHistory />
+          </div>
+        );
+
+      case "emails":
+        return (
+          <div className="space-y-8 animate-in fade-in duration-300">
+            <ImportantEmails />
+          </div>
+        );
+
+      case "calendar":
+        return (
+          <div className="space-y-8 animate-in fade-in duration-300">
+            <ScheduleTimeline />
+          </div>
+        );
+
+      case "knowledge":
+        return (
+          <div className="space-y-8 animate-in fade-in duration-300">
+            <KnowledgeBase />
+          </div>
+        );
+
+      case "analytics":
+        return (
+          <div className="space-y-8 animate-in fade-in duration-300">
+            <HealthOverview />
+            <ChartsSection />
+          </div>
+        );
+
+      case "settings":
+        return (
+          <div className="space-y-8 animate-in fade-in duration-300">
+            <SettingsView />
+          </div>
+        );
+
+      default:
+        return null;
+    }
   };
 
   return (
-    <div className="min-h-screen bg-white text-slate-900 selection:bg-indigo-500/30 font-sans">
-      
-      {/* Top Navigation */}
-      <header className="sticky top-0 z-50 flex items-center justify-between px-8 py-4 border-b border-black/5 bg-white/80 backdrop-blur-xl">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center font-bold text-white shadow-lg shadow-indigo-500/20">C</div>
-          <h1 className="text-xl font-semibold tracking-tight text-slate-900">Chief OS</h1>
-        </div>
-        <div className="flex items-center gap-4">
-          <div className="w-8 h-8 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center text-sm font-medium text-slate-900">C</div>
-        </div>
-      </header>
+    <div className="flex h-screen w-full bg-white text-black overflow-hidden font-sans selection:bg-neutral-200">
+      {/* Sidebar Navigation */}
+      <Sidebar
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        founderName={founderName}
+        founderInitials={founderInitials}
+        onLogout={() => {
+          localStorage.removeItem("chief_token");
+          localStorage.removeItem("chief_user_name");
+          localStorage.removeItem("chief_user_email");
+          setIsAuthenticated(false);
+          setActiveTab("dashboard");
+        }}
+      />
 
-      <main className="max-w-6xl mx-auto px-8 py-12 flex flex-col gap-12">
-        
-        {/* The Wow Factor Header */}
-        <section className="flex flex-col gap-6">
-          <h1 className="text-4xl md:text-5xl font-medium tracking-tight text-slate-900">
-            Good Morning, Charan.
-          </h1>
-          
-          {/* KPI Dashboard */}
-          {isLoading ? (
-            <div className="h-24 animate-pulse bg-black/5 rounded-2xl"></div>
-          ) : metrics ? (
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-              <div className="p-4 rounded-2xl bg-white border border-slate-200 hover:shadow-md transition-shadow">
-                <p className="text-xs text-slate-500 font-medium uppercase tracking-wider mb-1">Company Health</p>
-                <p className="text-2xl font-semibold text-emerald-600">{metrics.health_score}%</p>
-              </div>
-              <div className="p-4 rounded-2xl bg-white border border-slate-200 hover:shadow-md transition-shadow">
-                <p className="text-xs text-slate-500 font-medium uppercase tracking-wider mb-1">Revenue</p>
-                <p className="text-2xl font-semibold text-emerald-600">↑ {metrics.revenue_growth_pct}%</p>
-              </div>
-              <div className="p-4 rounded-2xl bg-white border border-slate-200 hover:shadow-md transition-shadow">
-                <p className="text-xs text-slate-500 font-medium uppercase tracking-wider mb-1">Runway</p>
-                <p className="text-2xl font-semibold text-slate-900">{metrics.runway_months} mo</p>
-              </div>
-              <div className="p-4 rounded-2xl bg-white border border-slate-200 hover:shadow-md transition-shadow">
-                <p className="text-xs text-slate-500 font-medium uppercase tracking-wider mb-1">Critical Risks</p>
-                <p className="text-2xl font-semibold text-red-600">{metrics.critical_risks}</p>
-              </div>
-              <div className="p-4 rounded-2xl bg-white border border-slate-200 hover:shadow-md transition-shadow">
-                <p className="text-xs text-slate-500 font-medium uppercase tracking-wider mb-1">Decisions</p>
-                <p className="text-2xl font-semibold text-orange-600">{metrics.decisions_waiting}</p>
-              </div>
-              <div className="p-4 rounded-2xl bg-white border border-slate-200 hover:shadow-md transition-shadow">
-                <p className="text-xs text-slate-500 font-medium uppercase tracking-wider mb-1">Est. Time</p>
-                <p className="text-2xl font-semibold text-slate-900">{metrics.est_decision_time_mins}m</p>
-              </div>
-            </div>
-          ) : (
-            <div className="p-4 rounded-2xl border border-red-500/20 bg-red-500/10 text-red-400">
-              Failed to load metrics. Ensure API Gateway and Database are running.
-            </div>
-          )}
+      {/* Main Content Area */}
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden bg-white">
+        {/* Top Navigation */}
+        <TopNav
+          onNavigate={(tab) => setActiveTab(tab)}
+          founderName={founderName}
+          founderInitials={founderInitials}
+        />
 
-          {/* Chief Conversational UI */}
-          <div className="relative mt-2 p-6 rounded-2xl bg-gradient-to-r from-indigo-50 to-purple-50 border border-indigo-100 shadow-sm">
-            <div className="flex items-start gap-4">
-              <div className="w-10 h-10 rounded-full bg-indigo-600 flex items-center justify-center shrink-0 shadow-lg shadow-indigo-500/30">
-                <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                </svg>
-              </div>
-              <div>
-                <p className="text-lg text-indigo-900 font-medium">
-                  "I've already analyzed your company overnight."
-                </p>
-                <p className="text-sm text-indigo-700/80 mt-1">
-                  I reviewed the latest Q3 financials, your pending inbox, and GitHub pull requests. There are {metrics?.decisions_waiting || 0} items needing your attention below.
-                </p>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {isExecutingFlow ? (
-          <GoalExecutionFlow 
-            goalText={submittedGoal} 
-            onComplete={() => setIsExecutingFlow(false)} 
-          />
-        ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 mt-4">
-            
-            {/* Left Column: Input & Insights */}
-            <div className="lg:col-span-7 flex flex-col gap-12">
-            
-            {/* Goal Input Section */}
-            <section className="relative">
-              <form onSubmit={handleSubmit} className="relative group">
-                <div className="absolute -inset-0.5 bg-gradient-to-r from-indigo-500 to-purple-600 rounded-2xl blur opacity-20 group-hover:opacity-30 transition duration-500"></div>
-                <div className="relative flex bg-white rounded-2xl border border-slate-200 p-2 shadow-lg">
-                  <input
-                    type="text"
-                    value={goal}
-                    onChange={(e) => setGoal(e.target.value)}
-                    placeholder="Ask Chief to analyze data, schedule meetings, or prep documents..."
-                    className="w-full bg-transparent text-lg px-4 py-3 outline-none placeholder:text-slate-400 text-slate-900"
-                  />
-                  <button
-                    type="submit"
-                    disabled={isSubmitting || !goal.trim()}
-                    className="px-6 py-3 rounded-xl bg-black text-white font-semibold hover:bg-slate-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-md"
-                  >
-                    {isSubmitting ? "Thinking..." : "Dispatch"}
-                  </button>
-                </div>
-              </form>
-            </section>
-
-            {/* Proactive Insight Feed */}
-            <section>
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-xl font-medium tracking-tight text-slate-900">Overnight Briefing</h2>
-                <span className="text-sm font-medium text-indigo-700 bg-indigo-50 px-3 py-1 rounded-full border border-indigo-100">{insights.length} Updates</span>
-              </div>
-              <div className="grid gap-4">
-                {insights.length === 0 && !isLoading ? (
-                  <p className="text-slate-500 italic">No new insights to report.</p>
-                ) : (
-                  insights.map(insight => (
-                    <div key={insight.id} className="p-5 rounded-2xl bg-white border border-slate-200 hover:shadow-md transition-shadow group">
-                      <div className="flex justify-between items-start mb-2">
-                        <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{insight.category}</span>
-                        <span className="text-xs text-slate-400">{insight.time}</span>
-                      </div>
-                      <h3 className="text-lg font-medium text-slate-900 mb-1 group-hover:text-indigo-600 transition-colors">{insight.title}</h3>
-                      <p className="text-slate-600 leading-relaxed">{insight.content}</p>
-                    </div>
-                  ))
-                )}
-              </div>
-            </section>
-          </div>
-
-          {/* Right Column: Approvals */}
-          <div className="lg:col-span-5">
-            <div className="sticky top-24">
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-xl font-medium tracking-tight text-slate-900 flex items-center gap-2">
-                  Decisions Waiting
-                  {approvals.length > 0 && (
-                    <span className="flex h-2 w-2 relative">
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-orange-400 opacity-75"></span>
-                      <span className="relative inline-flex rounded-full h-2 w-2 bg-orange-500"></span>
-                    </span>
-                  )}
-                </h2>
-              </div>
-              
-              <div className="flex flex-col gap-4">
-                {approvals.length === 0 && !isLoading ? (
-                  <div className="p-8 text-center rounded-2xl border border-dashed border-slate-300 text-slate-500">
-                    <p>No actions require approval right now.</p>
-                  </div>
-                ) : (
-                  approvals.map(req => (
-                    <ApprovalCard
-                      key={req.id}
-                      request={req}
-                      onApprove={handleApprove}
-                      onReject={handleReject}
-                    />
-                  ))
-                )}
-              </div>
-            </div>
-          </div>
-
-        </div>
-        )}
-      </main>
+        {/* Scrollable Executive View */}
+        <main className="flex-1 p-6 sm:p-8 overflow-y-auto max-w-7xl w-full mx-auto pb-16">
+          {renderContent()}
+        </main>
+      </div>
     </div>
   );
 }

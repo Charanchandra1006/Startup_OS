@@ -14,12 +14,20 @@ CRITICAL NON-NEGOTIABLE:
 
 from __future__ import annotations
 
+import os
+import sys
 import hashlib
 import json
 import logging
 import uuid
 from datetime import datetime, timezone
 from typing import Any
+from dotenv import load_dotenv
+
+# Ensure packages can be imported
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../packages/shared-types/python')))
+load_dotenv(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../.env')))
 
 from chief_types.models import (
     ApprovalRequestModel,

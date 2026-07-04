@@ -6,11 +6,18 @@ Specialist agent for financial reasoning: runway, burn rate, anomalies.
 """
 
 import os
+import sys
 import logging
 import json
 import httpx
 from fastapi import FastAPI, HTTPException
 from pydantic import ValidationError
+from dotenv import load_dotenv
+
+# Ensure packages can be imported
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../packages/shared-types/python')))
+load_dotenv(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../.env')))
 
 from chief_types.models import AgentInput, AgentOutput, SuggestedAction, RiskTier
 from chief_types.observability import get_tracer
@@ -60,8 +67,8 @@ async def fetch_financial_data(tenant_id: str, token: str) -> dict:
     async with httpx.AsyncClient() as client:
         # Requesting a summary report via Tool Gateway (mock_accounting for now)
         res = await client.post(
-            f"{TOOL_GATEWAY_URL}/execute",
-            headers={"Authorization": f"Bearer {token}"},
+            f"{TOOL_GATEWAY_URL}/tools/execute",
+            headers={"X-Access-Token": token},
             json={
                 "action_type": "read_transactions",
                 "provider": "mock_accounting",
@@ -95,11 +102,11 @@ Financial Data:
 Analyze the data and provide the requested information in the JSON structure.
 """
 
-        # 3. Call LLM (Gemini Pro for complex reasoning)
+        # 3. Call LLM (Gemini Flash for reasoning)
         try:
             content, _, _ = await llm.generate(
                 provider="google",
-                model_id="gemini-2.5-pro",
+                model_id="gemini-2.5-flash",
                 prompt=user_prompt,
                 system_prompt=SYSTEM_PROMPT,
                 max_tokens=2048,
@@ -117,7 +124,7 @@ Analyze the data and provide the requested information in the JSON structure.
             # 4. Validate against Pydantic model
             output = AgentOutput(**parsed)
             # Ensure model_used and prompt_version are accurate to the run
-            output.model_used = "gemini-2.5-pro"
+            output.model_used = "gemini-2.5-flash"
             output.prompt_version = "1.0.0"
             
             return output
@@ -129,6 +136,45 @@ Analyze the data and provide the requested information in the JSON structure.
             logger.error(f"LLM execution failed: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/cron/monitor")
+async def proactive_monitor(tenant_id: str, token: str):
+    """
+    Cron job endpoint for proactive anomaly detection.
+    Analyzes current financial data and if an anomaly is found, generates an insight.
+    """
+    fin_data = await fetch_financial_data(tenant_id, token)
+    if "error" in fin_data:
+        raise HTTPException(status_code=500, detail="Failed to fetch data")
+        
+    prompt = f"""
+    Financial Data:
+    {json.dumps(fin_data, indent=2)}
+    
+    Is there a critical financial anomaly (e.g. burn rate spike, runway < 6 months)?
+    Respond with JSON: {{"has_anomaly": bool, "title": "...", "detail": "...", "severity": "high|medium"}}
+    """
+    
+    content, _, _ = await llm.generate(
+        provider="google",
+        model_id="gemini-2.5-flash",
+        prompt=prompt,
+        system_prompt="You are an AI financial monitor. Keep responses factual.",
+        max_tokens=1024
+    )
+    
+    if content.startswith("```json"): content = content[7:-3]
+    elif content.startswith("```"): content = content[3:-3]
+    
+    try:
+        parsed = json.loads(content)
+        if parsed.get("has_anomaly"):
+            # In a real app, this would write to the 'insights' table via the execution service
+            logger.info(f"Anomaly detected for tenant {tenant_id}: {parsed['title']}")
+            return {"status": "anomaly_detected", "insight": parsed}
+        return {"status": "ok", "message": "No anomalies"}
+    except Exception as e:
+        logger.error(f"Cron monitor parse error: {e}")
+        return {"status": "error"}
 
 if __name__ == "__main__":
     import uvicorn

@@ -1,0 +1,435 @@
+"use client";
+
+import React, { useState, useEffect } from "react";
+import { Check, Eye, AlertTriangle, Clock, Sparkles, X, Plus, Zap, ArrowRight, RefreshCw } from "lucide-react";
+
+export function PendingDecisions() {
+  const defaultDecisions = [
+    {
+      id: "dec-1",
+      title: "Approve Hiring Budget ($150k Q3 Engineering)",
+      department: "Engineering",
+      deadline: "Today, 5:00 PM",
+      priority: "High",
+      description: "Hiring Agent recommends onboarding 2 Senior Backend Engineers immediately to meet Series A roadmap deliverables. Current budget surplus covers 100% of compensation.",
+      impact: "Extends product sprint velocity by 40% without shortening runway below 36 months.",
+    },
+    {
+      id: "dec-2",
+      title: "Approve Marketing Spend ($50k Growth Campaign)",
+      department: "Growth",
+      deadline: "Tomorrow",
+      priority: "Medium",
+      description: "Marketing Agent requests reallocation of Q2 under-spend into targeted LinkedIn and developer community ads. Predicted CAC is $140 with 4.2x LTV.",
+      impact: "Projected to generate ~350 qualified enterprise trial signups in 30 days.",
+    },
+    {
+      id: "dec-3",
+      title: "Investor Proposal Waiting (Alpha Ventures Term Sheet)",
+      department: "Finance",
+      deadline: "In 2 hours",
+      priority: "Critical",
+      description: "Alpha Ventures has submitted a revised $12M Series A term sheet at a $65M pre-money valuation. Legal and Finance agents have audited all governance clauses.",
+      impact: "Secures 4 years of operating capital; standard pro-rata and board seat terms.",
+    },
+    {
+      id: "dec-4",
+      title: "Legal Contract Pending (Enterprise MSA with CloudScale)",
+      department: "Legal",
+      deadline: "Friday",
+      priority: "High",
+      description: "CloudScale Inc. ($180k ARR contract) requested redlines on liability indemnification. Legal Agent generated a mutual compromise clause approved by external counsel.",
+      impact: "Unblocks immediate revenue recognition for Q3 enterprise quota.",
+    },
+  ];
+
+  const [decisions, setDecisions] = useState<any[]>(defaultDecisions);
+  const [selectedDecision, setSelectedDecision] = useState<any>(null);
+  const [showQuickModal, setShowQuickModal] = useState(false);
+  const [quickTitle, setQuickTitle] = useState("");
+  const [quickDept, setQuickDept] = useState("Engineering");
+  const [quickPriority, setQuickPriority] = useState("High");
+  const [quickDesc, setQuickDesc] = useState("");
+
+  const loadGeneratedTasks = () => {
+    try {
+      const stored = localStorage.getItem("chief_generated_tasks");
+      if (stored) {
+        const genTasks = JSON.parse(stored);
+        if (Array.isArray(genTasks) && genTasks.length > 0) {
+          // Merge generated tasks at the top without duplicates
+          const existingIds = new Set(defaultDecisions.map(d => d.id));
+          const newOnly = genTasks.filter((t: any) => !existingIds.has(t.id));
+          setDecisions([...genTasks, ...defaultDecisions.filter(d => !genTasks.some((gt: any) => gt.id === d.id))]);
+        }
+      }
+    } catch (err) {
+      console.warn("Failed to read generated tasks from storage:", err);
+    }
+  };
+
+  useEffect(() => {
+    loadGeneratedTasks();
+
+    const handleSync = () => {
+      loadGeneratedTasks();
+    };
+
+    window.addEventListener("tasks_generated", handleSync);
+    return () => window.removeEventListener("tasks_generated", handleSync);
+  }, []);
+
+  const handleApprove = (id: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    
+    // Find the decision being approved
+    const target = decisions.find(d => d.id === id);
+    if (target) {
+      try {
+        // Remove from generated tasks in storage
+        const storedGen = JSON.parse(localStorage.getItem("chief_generated_tasks") || "[]");
+        const updatedGen = storedGen.filter((t: any) => t.id !== id);
+        localStorage.setItem("chief_generated_tasks", JSON.stringify(updatedGen));
+
+        // Add to completed tasks in storage for TaskHistory audit log
+        const storedComp = JSON.parse(localStorage.getItem("chief_completed_tasks") || "[]");
+        const compEntry = {
+          id: `exec-${Date.now()}`,
+          title: `Executed: ${target.title}`,
+          agent: `${target.department} Agent`,
+          time: "Just now",
+          status: "Success",
+          details: target.description || "Executed and verified by autonomous agent.",
+          duration: "1.2s",
+          cost: "$0.04",
+        };
+        localStorage.setItem("chief_completed_tasks", JSON.stringify([compEntry, ...storedComp]));
+        window.dispatchEvent(new Event("task_completed"));
+      } catch (err) {
+        console.error("Error updating task storage on approval:", err);
+      }
+    }
+
+    setDecisions((prev) => prev.filter((d) => d.id !== id));
+    if (selectedDecision?.id === id) setSelectedDecision(null);
+  };
+
+  const handleCreateQuickTask = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!quickTitle.trim()) return;
+
+    const newTask = {
+      id: `manual-gen-${Date.now()}`,
+      title: quickTitle.trim(),
+      department: quickDept,
+      deadline: "Today, 6:00 PM",
+      priority: quickPriority,
+      description: quickDesc.trim() || `Autonomous ${quickDept} Agent analyzed and formulated actionable execution strategy for: ${quickTitle.trim()}.`,
+      impact: "Aligns departmental resources and unlocks immediate operational progress.",
+    };
+
+    try {
+      const stored = JSON.parse(localStorage.getItem("chief_generated_tasks") || "[]");
+      const updated = [newTask, ...stored];
+      localStorage.setItem("chief_generated_tasks", JSON.stringify(updated));
+      window.dispatchEvent(new Event("tasks_generated"));
+    } catch (err) {
+      console.error("Error saving manual generated task:", err);
+    }
+
+    setDecisions(prev => [newTask, ...prev]);
+    setShowQuickModal(false);
+    setQuickTitle("");
+    setQuickDesc("");
+  };
+
+  return (
+    <section className="p-6 rounded-2xl bg-white border border-neutral-200 shadow-sm relative overflow-hidden space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <div className="p-2.5 rounded-xl bg-black text-white shadow-xs shrink-0">
+            <AlertTriangle className="h-5 w-5" />
+          </div>
+          <div>
+            <h3 className="text-base font-bold text-black tracking-tight flex items-center gap-2">
+              Pending Critical Decisions
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-black text-white font-bold">
+                {decisions.length} ACTION ITEMS
+              </span>
+            </h3>
+            <p className="text-xs text-neutral-500 mt-0.5">
+              High-leverage founder approvals generated by your AI Command Center & Departmental Agents
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 self-end sm:self-center shrink-0">
+          <button
+            onClick={loadGeneratedTasks}
+            className="px-3 py-1.5 rounded-lg bg-neutral-100 hover:bg-neutral-200 border border-neutral-300 text-neutral-700 font-semibold text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+            <span>Sync Tasks</span>
+          </button>
+          <button
+            onClick={() => setShowQuickModal(true)}
+            className="px-3.5 py-1.5 rounded-lg bg-black hover:bg-neutral-800 text-white font-bold text-xs flex items-center gap-1.5 shadow-sm transition-colors cursor-pointer"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            <span>Generate Task</span>
+          </button>
+        </div>
+      </div>
+
+      {decisions.length === 0 ? (
+        <div className="p-12 text-center rounded-xl bg-neutral-50 border border-dashed border-neutral-300">
+          <Check className="h-6 w-6 text-black mx-auto mb-2" />
+          <p className="text-xs font-semibold text-black">All pending decisions resolved!</p>
+          <p className="text-[11px] text-neutral-500 mt-1">Your autonomous agents are continuing normal operations or waiting for new Command Center goals.</p>
+        </div>
+      ) : (
+        <div className="space-y-2.5">
+          {decisions.map((d) => {
+            const isGenerated = d.id?.toString().startsWith("gen-") || d.id?.toString().startsWith("manual-gen-");
+            return (
+              <div
+                key={d.id}
+                onClick={() => setSelectedDecision(d)}
+                className={`p-4 rounded-xl border transition-all duration-150 flex flex-col sm:flex-row sm:items-center justify-between gap-4 group cursor-pointer ${
+                  isGenerated 
+                    ? "bg-white border-black shadow-xs hover:bg-neutral-50" 
+                    : "bg-neutral-50 hover:bg-neutral-100/80 border-neutral-200 hover:border-neutral-300"
+                }`}
+              >
+                <div className="flex items-start gap-3 flex-1 min-w-0">
+                  <div className="mt-0.5 shrink-0 flex flex-col gap-1 items-start">
+                    <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded border inline-block ${
+                      d.priority === "Critical" 
+                        ? "bg-black text-white border-black" 
+                        : "bg-neutral-200 text-neutral-800 border-neutral-300"
+                    }`}>
+                      {d.priority}
+                    </span>
+                    {isGenerated && (
+                      <span className="text-[9px] font-mono font-extrabold px-1.5 py-0.2 rounded bg-neutral-100 text-black border border-neutral-300 flex items-center gap-1">
+                        <Zap className="h-2.5 w-2.5 fill-black" /> AI GENERATED
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="flex-1 min-w-0">
+                    <h4 className="text-xs font-bold text-black group-hover:underline transition-all truncate">
+                      {d.title}
+                    </h4>
+                    <div className="flex items-center gap-2 text-[11px] text-neutral-500 mt-1 font-mono">
+                      <span className="font-semibold text-neutral-800">Dept: {d.department}</span>
+                      <span>•</span>
+                      <span className="flex items-center gap-1 text-neutral-500">
+                        <Clock className="h-3 w-3 text-neutral-400" /> {d.deadline}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 self-end sm:self-center shrink-0">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSelectedDecision(d);
+                    }}
+                    className="px-3 py-1.5 rounded-lg bg-white hover:bg-neutral-200 border border-neutral-300 text-neutral-700 hover:text-black font-medium text-xs flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
+                  >
+                    <Eye className="h-3.5 w-3.5" />
+                    <span>Details</span>
+                  </button>
+                  <button
+                    onClick={(e) => handleApprove(d.id, e)}
+                    className="px-4 py-1.5 rounded-lg bg-black hover:bg-neutral-800 text-white font-semibold text-xs flex items-center gap-1.5 transition-colors cursor-pointer shadow-sm"
+                  >
+                    <Check className="h-3.5 w-3.5" />
+                    <span>Approve & Execute</span>
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Manual Quick Task Generator Modal */}
+      {showQuickModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="w-full max-w-lg rounded-2xl bg-white border border-neutral-200 shadow-2xl p-6 relative overflow-hidden animate-in zoom-in-95 duration-200 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-neutral-200">
+              <div className="flex items-center gap-2">
+                <Zap className="h-4 w-4 text-black" />
+                <h4 className="text-sm font-bold text-black">Instant AI Task Decomposer</h4>
+              </div>
+              <button
+                onClick={() => setShowQuickModal(false)}
+                className="p-1 rounded-lg text-neutral-400 hover:text-black hover:bg-neutral-100 transition-colors"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateQuickTask} className="space-y-4">
+              <div className="p-3.5 rounded-xl bg-neutral-50 border border-neutral-200 text-xs text-neutral-600 leading-relaxed">
+                Enter an actionable decision or instruction. Your autonomous agents will prepare the audit memo and add it directly to your executive decision queue.
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-black mb-1 font-mono">
+                  Task Title / Decision Requirement
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={quickTitle}
+                  onChange={(e) => setQuickTitle(e.target.value)}
+                  placeholder="e.g. Approve Q3 SOC2 Security Audit Engagement..."
+                  className="w-full p-3 rounded-xl bg-neutral-50 border border-neutral-300 text-xs text-black font-medium focus:outline-none focus:border-black transition-colors"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-black mb-1 font-mono">
+                    Responsible Dept
+                  </label>
+                  <select
+                    value={quickDept}
+                    onChange={(e) => setQuickDept(e.target.value)}
+                    className="w-full p-3 rounded-xl bg-neutral-50 border border-neutral-300 text-xs text-black font-semibold focus:outline-none focus:border-black transition-colors cursor-pointer"
+                  >
+                    <option value="Engineering">Engineering</option>
+                    <option value="Finance">Finance</option>
+                    <option value="Legal">Legal</option>
+                    <option value="Growth">Growth</option>
+                    <option value="Operations">Operations</option>
+                    <option value="HR & Team">HR & Team</option>
+                    <option value="Executive">Executive</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-black mb-1 font-mono">
+                    Priority Level
+                  </label>
+                  <select
+                    value={quickPriority}
+                    onChange={(e) => setQuickPriority(e.target.value)}
+                    className="w-full p-3 rounded-xl bg-neutral-50 border border-neutral-300 text-xs text-black font-semibold focus:outline-none focus:border-black transition-colors cursor-pointer"
+                  >
+                    <option value="High">High</option>
+                    <option value="Critical">Critical</option>
+                    <option value="Medium">Medium</option>
+                    <option value="Standard">Standard</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-black mb-1 font-mono">
+                  Optional AI Briefing Context & Impact Notes
+                </label>
+                <textarea
+                  rows={2}
+                  value={quickDesc}
+                  onChange={(e) => setQuickDesc(e.target.value)}
+                  placeholder="Provide any specific constraints or background notes..."
+                  className="w-full p-3 rounded-xl bg-neutral-50 border border-neutral-300 text-xs text-black font-medium focus:outline-none focus:border-black transition-colors resize-none leading-relaxed font-mono"
+                />
+              </div>
+
+              <div className="pt-4 border-t border-neutral-200 flex items-center justify-end gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setShowQuickModal(false)}
+                  className="px-3.5 py-2 rounded-xl bg-neutral-100 hover:bg-neutral-200 text-neutral-700 text-xs font-medium transition-colors cursor-pointer border border-neutral-300"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 rounded-xl bg-black hover:bg-neutral-800 text-white font-bold text-xs shadow-sm flex items-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  <Check className="h-3.5 w-3.5" />
+                  <span>Generate Action Item</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* View Details Modal */}
+      {selectedDecision && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="w-full max-w-lg rounded-2xl bg-white border border-neutral-200 shadow-2xl p-6 relative overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between pb-4 mb-4 border-b border-neutral-200">
+              <div className="flex items-center gap-2">
+                <Sparkles className="h-4 w-4 text-black" />
+                <h4 className="text-sm font-bold text-black">Decision Briefing & AI Audit</h4>
+              </div>
+              <button
+                onClick={() => setSelectedDecision(null)}
+                className="p-1 rounded-lg text-neutral-400 hover:text-black hover:bg-neutral-100 transition-colors"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <span className="text-[10px] font-mono uppercase tracking-wider text-neutral-400 font-semibold">Subject</span>
+                <h3 className="text-base font-bold text-black mt-0.5">{selectedDecision.title}</h3>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 p-3 rounded-xl bg-neutral-50 border border-neutral-200">
+                <div>
+                  <span className="text-[10px] font-mono uppercase text-neutral-400 font-semibold">Department</span>
+                  <div className="text-xs font-semibold text-black mt-0.5">{selectedDecision.department}</div>
+                </div>
+                <div>
+                  <span className="text-[10px] font-mono uppercase text-neutral-400 font-semibold">Deadline</span>
+                  <div className="text-xs font-semibold text-black mt-0.5">{selectedDecision.deadline}</div>
+                </div>
+              </div>
+
+              <div>
+                <span className="text-[10px] font-mono uppercase tracking-wider text-neutral-400 font-semibold">AI Recommendation & Audit</span>
+                <p className="text-xs text-neutral-700 leading-relaxed mt-1 p-3 rounded-xl bg-neutral-50 border border-neutral-200 font-normal">
+                  {selectedDecision.description}
+                </p>
+              </div>
+
+              <div>
+                <span className="text-[10px] font-mono uppercase tracking-wider text-neutral-400 font-semibold">Projected Strategic Impact</span>
+                <p className="text-xs text-black font-medium leading-relaxed mt-1 p-3 rounded-xl bg-neutral-100 border border-neutral-200">
+                  {selectedDecision.impact}
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-6 pt-4 border-t border-neutral-200 flex items-center justify-end gap-2.5">
+              <button
+                onClick={() => setSelectedDecision(null)}
+                className="px-4 py-2 rounded-xl bg-neutral-100 hover:bg-neutral-200 text-neutral-700 text-xs font-medium transition-colors cursor-pointer border border-neutral-300"
+              >
+                Close
+              </button>
+              <button
+                onClick={() => handleApprove(selectedDecision.id)}
+                className="px-5 py-2 rounded-xl bg-black hover:bg-neutral-800 text-white font-bold text-xs shadow-sm flex items-center gap-1.5 transition-colors cursor-pointer"
+              >
+                <Check className="h-3.5 w-3.5" />
+                <span>Approve & Execute Now</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}

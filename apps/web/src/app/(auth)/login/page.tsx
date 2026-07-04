@@ -16,7 +16,7 @@ export default function LoginPage() {
     setError("");
 
     try {
-      const res = await fetch("http://localhost:3000/api/auth/login", {
+      const res = await fetch("http://localhost:4000/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),
@@ -40,7 +40,7 @@ export default function LoginPage() {
   const handleGoogleLogin = () => {
     // Dynamic tenant ID handling would go here for multi-tenant SaaS.
     // For demo, we use a fixed startup tenant.
-    window.location.href = "http://localhost:3000/api/auth/google/login?tenant_id=a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11";
+    window.location.href = "http://localhost:4000/api/auth/google/login?tenant_id=a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11";
   };
 
   return (

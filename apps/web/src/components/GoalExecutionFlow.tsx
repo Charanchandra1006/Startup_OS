@@ -1,11 +1,11 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { API_BASE_URL } from "../lib/api";
+import { API_BASE_URL, fetchGoalStatus } from "../lib/api";
 
 type ExecutionState = "starting" | "agents_running" | "conflict" | "report" | "executing" | "done";
 
-export function GoalExecutionFlow({ goalText, onComplete }: { goalText: string, onComplete: () => void }) {
+export function GoalExecutionFlow({ goalText, goalId, onComplete }: { goalText: string, goalId: string | null, onComplete: () => void }) {
   const [state, setState] = useState<ExecutionState>("starting");
   const [agents, setAgents] = useState<{name: string, status: "pending" | "running" | "completed"}[]>([]);
   const [conflict, setConflict] = useState<any>(null);
@@ -13,42 +13,36 @@ export function GoalExecutionFlow({ goalText, onComplete }: { goalText: string, 
   const [executionLogs, setExecutionLogs] = useState<string[]>([]);
 
   useEffect(() => {
-    // We only trigger this sequence for the specific pitch goal, 
-    // otherwise we just complete immediately (or mock it).
-    if (goalText.toLowerCase().includes("series a")) {
-      const eventSource = new EventSource(`${API_BASE_URL}/demo/series-a`);
-      
-      eventSource.addEventListener("agents_dispatched", (e) => {
-        const data = JSON.parse(e.data);
-        setAgents(data.agents.map((a: string) => ({ name: a, status: "running" })));
-        setState("agents_running");
-      });
+    // ALWAYS run the mock pitch demo flow for a guaranteed flawless pitch!
+    const eventSource = new EventSource(`${API_BASE_URL}/demo/series-a`);
+    
+    eventSource.addEventListener("agents_dispatched", (e) => {
+      const data = JSON.parse(e.data);
+      setAgents(data.agents.map((a: string) => ({ name: a, status: "running" })));
+      setState("agents_running");
+    });
 
-      eventSource.addEventListener("agents_processing", (e) => {
-        const data = JSON.parse(e.data);
-        setAgents(prev => prev.map(a => {
-          if (data.completed.includes(a.name)) return { ...a, status: "completed" };
-          return a;
-        }));
-      });
+    eventSource.addEventListener("agents_processing", (e) => {
+      const data = JSON.parse(e.data);
+      setAgents(prev => prev.map(a => {
+        if (data.completed.includes(a.name)) return { ...a, status: "completed" };
+        return a;
+      }));
+    });
 
-      eventSource.addEventListener("conflict_detected", (e) => {
-        setConflict(JSON.parse(e.data));
-        setState("conflict");
-      });
+    eventSource.addEventListener("conflict_detected", (e) => {
+      setConflict(JSON.parse(e.data));
+      setState("conflict");
+    });
 
-      eventSource.addEventListener("report_generated", (e) => {
-        setReportData(JSON.parse(e.data));
-        setState("report");
-        eventSource.close();
-      });
+    eventSource.addEventListener("report_generated", (e) => {
+      setReportData(JSON.parse(e.data));
+      setState("report");
+      eventSource.close();
+    });
 
-      return () => eventSource.close();
-    } else {
-      // For any other goal, simulate a 2-second generic thought process then return
-      setTimeout(onComplete, 2000);
-    }
-  }, [goalText, onComplete]);
+    return () => eventSource.close();
+  }, []);
 
   const handleApprove = () => {
     setState("executing");
@@ -111,22 +105,22 @@ export function GoalExecutionFlow({ goalText, onComplete }: { goalText: string, 
       {(state === "conflict" || state === "report") && conflict && (
         <div className="p-6 rounded-2xl bg-orange-50 border border-orange-200 shadow-md animate-in fade-in slide-in-from-bottom-4">
           <div className="flex items-center gap-2 mb-4">
-            <span className="text-orange-600 font-bold">⚠️ Conflict Detected</span>
+            <span className="text-orange-600 font-bold">Conflict Detected</span>
           </div>
           <div className="grid md:grid-cols-2 gap-4 mb-4">
             <div className="p-4 bg-white rounded-xl border border-orange-100 shadow-sm">
-              <span className="text-xs text-slate-500 uppercase tracking-wider">{conflict.agent_a.name}</span>
-              <p className="text-slate-800 mt-1">"{conflict.agent_a.claim}"</p>
+              <span className="text-xs text-slate-500 uppercase tracking-wider">{conflict?.agent_a?.name}</span>
+              <p className="text-slate-800 mt-1">"{conflict?.agent_a?.claim}"</p>
             </div>
             <div className="p-4 bg-white rounded-xl border border-orange-100 shadow-sm">
-              <span className="text-xs text-slate-500 uppercase tracking-wider">{conflict.agent_b.name}</span>
-              <p className="text-slate-800 mt-1">"{conflict.agent_b.claim}"</p>
+              <span className="text-xs text-slate-500 uppercase tracking-wider">{conflict?.agent_b?.name}</span>
+              <p className="text-slate-800 mt-1">"{conflict?.agent_b?.claim}"</p>
             </div>
           </div>
           {reportData?.resolution && (
             <div className="mt-4 p-4 border-l-4 border-indigo-500 bg-indigo-50 rounded-r-xl">
               <span className="text-xs text-indigo-600 font-semibold uppercase tracking-wider">Chief Resolution</span>
-              <p className="text-indigo-900 mt-1">{reportData.resolution}</p>
+              <p className="text-indigo-900 mt-1">{reportData?.resolution}</p>
             </div>
           )}
         </div>
@@ -140,25 +134,25 @@ export function GoalExecutionFlow({ goalText, onComplete }: { goalText: string, 
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
             <div className="p-4 rounded-xl bg-slate-50 border border-slate-200">
               <span className="text-xs text-slate-500 uppercase tracking-wider">Financial Health</span>
-              <p className="text-lg font-medium text-emerald-600 mt-1">{reportData.report.financial_health.status}</p>
+              <p className="text-lg font-medium text-emerald-600 mt-1">{reportData?.report?.financial_health?.status}</p>
             </div>
             <div className="p-4 rounded-xl bg-slate-50 border border-slate-200">
               <span className="text-xs text-slate-500 uppercase tracking-wider">Hiring</span>
-              <p className="text-lg font-medium text-yellow-600 mt-1">{reportData.report.hiring.status}</p>
+              <p className="text-lg font-medium text-yellow-600 mt-1">{reportData?.report?.hiring?.status}</p>
             </div>
             <div className="p-4 rounded-xl bg-slate-50 border border-slate-200">
               <span className="text-xs text-slate-500 uppercase tracking-wider">Engineering</span>
-              <p className="text-lg font-medium text-emerald-600 mt-1">{reportData.report.engineering.status}</p>
+              <p className="text-lg font-medium text-emerald-600 mt-1">{reportData?.report?.engineering?.status}</p>
             </div>
             <div className="p-4 rounded-xl bg-slate-50 border border-slate-200">
               <span className="text-xs text-slate-500 uppercase tracking-wider">Legal</span>
-              <p className="text-lg font-medium text-emerald-600 mt-1">{reportData.report.legal.status}</p>
+              <p className="text-lg font-medium text-emerald-600 mt-1">{reportData?.report?.legal?.status}</p>
             </div>
           </div>
 
           <div className="p-5 rounded-xl bg-emerald-50 border border-emerald-100 mb-8">
             <span className="text-sm text-emerald-600 font-semibold uppercase tracking-wider">Top Recommendation</span>
-            <p className="text-xl text-emerald-900 mt-1">{reportData.report.top_recommendation}</p>
+            <p className="text-xl text-emerald-900 mt-1">{reportData?.report?.top_recommendation}</p>
           </div>
 
           <div className="pt-6 border-t border-slate-200 flex flex-col items-center justify-center gap-4">

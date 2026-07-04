@@ -6,11 +6,18 @@ Specialist agent for scheduling, email drafting, and routine coordination.
 """
 
 import os
+import sys
 import logging
 import json
 import httpx
 from fastapi import FastAPI, HTTPException
 from pydantic import ValidationError
+from dotenv import load_dotenv
+
+# Ensure packages can be imported
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../packages/shared-types/python')))
+load_dotenv(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../.env')))
 
 from chief_types.models import AgentInput, AgentOutput
 from chief_types.observability import get_tracer
@@ -57,11 +64,11 @@ async def fetch_calendar_data(tenant_id: str, token: str) -> dict:
     """Fetch calendar data from the Tool Gateway."""
     async with httpx.AsyncClient() as client:
         res = await client.post(
-            f"{TOOL_GATEWAY_URL}/execute",
-            headers={"Authorization": f"Bearer {token}"},
+            f"{TOOL_GATEWAY_URL}/tools/execute",
+            headers={"X-Access-Token": token},
             json={
                 "action_type": "read_calendar",
-                "provider": "google",
+                "provider": "mock_calendar",
                 "operation": "list_events",
                 "params": {"tenant_id": tenant_id}
             }
@@ -71,6 +78,24 @@ async def fetch_calendar_data(tenant_id: str, token: str) -> dict:
             return {"error": "Could not retrieve calendar data"}
         return res.json()
 
+async def fetch_email_data(tenant_id: str, token: str) -> dict:
+    """Fetch email data from the Tool Gateway."""
+    async with httpx.AsyncClient() as client:
+        res = await client.post(
+            f"{TOOL_GATEWAY_URL}/tools/execute",
+            headers={"X-Access-Token": token},
+            json={
+                "action_type": "read_emails",
+                "provider": "mock_email",
+                "operation": "list_emails",
+                "params": {"tenant_id": tenant_id}
+            }
+        )
+        if res.status_code != 200:
+            logger.warning(f"Failed to fetch email data: {res.text}")
+            return {"error": "Could not retrieve email data"}
+        return res.json()
+
 
 @app.post("/execute", response_model=AgentOutput)
 async def execute_task(payload: AgentInput):
@@ -78,8 +103,9 @@ async def execute_task(payload: AgentInput):
         span.set_attribute("tenant.id", str(payload.tenant_id))
         span.set_attribute("task.description", payload.task_description)
 
-        # 1. Fetch external data (mock calendar context)
+        # 1. Fetch external data (mock calendar and email context)
         cal_data = await fetch_calendar_data(str(payload.tenant_id), payload.scoped_data_access_token)
+        email_data = await fetch_email_data(str(payload.tenant_id), payload.scoped_data_access_token)
         
         # 2. Construct LLM prompt
         user_prompt = f"""
@@ -89,7 +115,10 @@ Task: {payload.task_description}
 Calendar Context:
 {json.dumps(cal_data, indent=2)}
 
-Analyze the request and provide the JSON structure, including any suggested_actions (like schedule_meeting or create_internal_draft).
+Email Context:
+{json.dumps(email_data, indent=2)}
+
+Analyze the request and provide the JSON structure, including any suggested_actions (like schedule_meeting, draft_email, or create_internal_draft).
 """
 
         # 3. Call LLM (Gemini Flash for routine EA tasks)

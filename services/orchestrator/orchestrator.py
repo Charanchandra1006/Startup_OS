@@ -14,10 +14,18 @@ DISPATCHING → AWAITING_SPECIALIST_OUTPUT → SYNTHESIZING →
 
 from __future__ import annotations
 
+import os
+import sys
 import logging
 import uuid
 from datetime import datetime, timezone
 from typing import Any
+from dotenv import load_dotenv
+
+# Ensure packages can be imported
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../packages/shared-types/python')))
+load_dotenv(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../.env')))
 
 from chief_types.models import (
     AgentInput,
@@ -31,6 +39,8 @@ from chief_types.models import (
 )
 from chief_types.grounding_validator import validate_grounding
 from chief_types.observability import get_tracer
+from dispatcher import Dispatcher
+from model_router import ModelRouter
 
 logger = logging.getLogger("chief.orchestrator")
 
@@ -121,6 +131,7 @@ class Task:
         self.description = description
         self.depends_on = depends_on or []
         self.status = TaskStatus.PENDING
+        self.timeout_ms = 120_000  # 120s default timeout
         self.output: AgentOutput | None = None
         self.error: str | None = None
         self.started_at: datetime | None = None
@@ -129,95 +140,133 @@ class Task:
 
 class GoalClassifier:
     """
-    Classifies goal type from natural language input.
-    AIDD §3: If confidence < threshold, routes to clarification.
+    Classifies a raw text goal into a GoalType using an LLM.
     """
 
-    DEFAULT_CONFIDENCE_THRESHOLD = 0.7
+    DEFAULT_CONFIDENCE_THRESHOLD = 0.65
 
-    def classify(
+    async def classify(
         self,
         raw_text: str,
-        confidence_threshold: float | None = None,
+        router: Any,
     ) -> tuple[GoalType, float]:
         """
-        Classify a goal's type. In production, this calls the Model Router.
-        Phase 0: rule-based classification for testing the pipeline.
-
-        Returns:
-            Tuple of (GoalType, confidence_score)
+        Classify a goal's type via LLM.
         """
-        text_lower = raw_text.lower()
-
-        # Simple keyword-based classification for Phase 0
-        if any(kw in text_lower for kw in ["report", "summarize", "overview", "status"]):
-            return GoalType.REPORTING, 0.85
-
-        if any(kw in text_lower for kw in ["monitor", "watch", "alert", "track"]):
-            return GoalType.MONITORING, 0.80
-
-        if any(kw in text_lower for kw in ["forecast", "predict", "project", "runway"]):
-            return GoalType.FORECASTING, 0.82
-
-        if any(kw in text_lower for kw in ["board", "meeting", "deck", "prepare"]):
-            return GoalType.COMPOSITE, 0.78
-
-        if any(kw in text_lower for kw in ["send", "publish", "schedule", "create"]):
-            return GoalType.ACTION_REQUEST, 0.75
-
-        if "?" in raw_text:
-            return GoalType.AD_HOC_QUESTION, 0.70
-
-        return GoalType.UNCLASSIFIED, 0.40
+        import json
+        
+        prompt = f"""
+        Classify the following goal from a startup founder into one of these categories:
+        {', '.join([e.value for e in GoalType])}
+        
+        Goal: "{raw_text}"
+        
+        Return ONLY valid JSON in this exact schema, with no markdown formatting:
+        {{
+            "type": "<one of the categories>",
+            "confidence": <float between 0.0 and 1.0>
+        }}
+        """
+        try:
+            result = await router.call_model(
+                prompt=prompt,
+                task_description="Classify founder goal",
+            )
+            content = result.content
+            if content.startswith("```json"): content = content[7:-3]
+            elif content.startswith("```"): content = content[3:-3]
+            
+            parsed = json.loads(content)
+            goal_type_str = parsed.get("type", GoalType.UNCLASSIFIED.value)
+            confidence = float(parsed.get("confidence", 0.4))
+            
+            try:
+                goal_type = GoalType(goal_type_str)
+            except ValueError:
+                goal_type = GoalType.UNCLASSIFIED
+                
+            return goal_type, confidence
+        except Exception as e:
+            logger.error(f"Goal classification failed: {e}")
+            return GoalType.UNCLASSIFIED, 0.40
 
 
 class TaskDecomposer:
     """
-    Decomposes a classified goal into a task graph.
+    Decomposes a classified goal into a task graph using LLM.
     PRD FR-1.4: Task list shown to founder before execution begins.
     """
 
-    def decompose(
+    async def decompose(
         self,
         goal: Goal,
-        available_agents: list[str] | None = None,
+        available_agents: list[str],
+        router: Any,
     ) -> list[Task]:
         """
-        Decompose a goal into tasks for specialist agents.
-        Phase 0: simple mapping based on goal type.
-        Production: LLM-powered decomposition.
+        Decompose a goal into tasks for specialist agents via LLM.
         """
-        agents = available_agents or ["AGT-ECHO"]
-
-        tasks = []
-        if goal.classified_type == GoalType.REPORTING:
-            tasks.append(Task(
-                goal_id=goal.id,
-                tenant_id=goal.tenant_id,
-                assigned_agent=agents[0],
-                description=f"Generate report for: {goal.raw_text}",
-            ))
-
-        elif goal.classified_type == GoalType.COMPOSITE:
-            # Composite goals may generate multiple tasks
-            for i, agent in enumerate(agents):
+        import json
+        
+        prompt = f"""
+        You are decomposing a founder's goal into discrete tasks for specialist AI agents.
+        
+        Goal: "{goal.raw_text}"
+        Goal Type: {goal.classified_type.value}
+        
+        Available Agents:
+        {json.dumps(available_agents, indent=2)}
+        
+        Create a task plan. Return ONLY valid JSON in this exact schema:
+        {{
+            "tasks": [
+                {{
+                    "assigned_agent": "<agent_id>",
+                    "description": "<detailed instruction for the agent>"
+                }}
+            ]
+        }}
+        """
+        try:
+            result = await router.call_model(
+                prompt=prompt,
+                task_description=f"Decompose goal: {goal.raw_text[:50]}",
+            )
+            content = result.content
+            if content.startswith("```json"): content = content[7:-3]
+            elif content.startswith("```"): content = content[3:-3]
+            
+            parsed = json.loads(content)
+            tasks_data = parsed.get("tasks", [])
+            
+            tasks = []
+            for t in tasks_data:
+                agent = t.get("assigned_agent")
+                if agent not in available_agents:
+                    agent = available_agents[0] if available_agents else "AGT-ECHO"
+                
                 tasks.append(Task(
                     goal_id=goal.id,
                     tenant_id=goal.tenant_id,
                     assigned_agent=agent,
-                    description=f"Sub-task {i+1} for: {goal.raw_text}",
+                    description=t.get("description", "Process task")
                 ))
-
-        else:
-            # Default: single task to the first available agent
-            tasks.append(Task(
+                
+            if not tasks:
+                raise ValueError("No tasks generated")
+                
+            return tasks
+            
+        except Exception as e:
+            logger.error(f"Task decomposition failed: {e}")
+            # Fallback
+            agent = available_agents[0] if available_agents else "AGT-ECHO"
+            return [Task(
                 goal_id=goal.id,
                 tenant_id=goal.tenant_id,
-                assigned_agent=agents[0],
-                description=f"Process goal: {goal.raw_text}",
-            ))
-
-        return tasks
+                assigned_agent=agent,
+                description=f"Process goal: {goal.raw_text}"
+            )]
 
 
 class ConflictDetector:
@@ -265,64 +314,99 @@ class ConflictDetector:
 
 class Synthesizer:
     """
-    Combines specialist outputs into a founder-facing report.
-    AIDD §6: confidence-weighted, conflicts surfaced not arbitrated (Phase 1).
+    Synthesizes multiple agent outputs into a cohesive founder report using LLM.
     """
 
-    def synthesize(
+    async def synthesize(
         self,
         goal: Goal,
         outputs: dict[str, AgentOutput],
         conflicts: list[dict[str, Any]],
-    ) -> dict[str, Any]:
+        router: Any,
+    ) -> tuple[dict[str, Any], list[SuggestedAction]]:
         """
-        Synthesize specialist outputs into a unified report.
-        GR-06: Confidence may never be silently upgraded during synthesis.
+        Synthesize via LLM.
         """
-        # Determine overall confidence (GR-06: min of contributing outputs)
-        confidences = [o.confidence for o in outputs.values()]
-        confidence_order = {
-            ConfidenceLevel.LOW: 0,
-            ConfidenceLevel.MEDIUM: 1,
-            ConfidenceLevel.HIGH: 2,
-        }
-        min_confidence = min(confidences, key=lambda c: confidence_order[c])
+        import json
+        
+        min_confidence = min(
+            (out.confidence for out in outputs.values()),
+            default=ConfidenceLevel.HIGH,
+        )
 
-        # Collect all supporting data
         all_supporting_data = []
         for output in outputs.values():
             all_supporting_data.extend(
                 [sd.model_dump() for sd in output.supporting_data]
             )
 
-        # Collect all caveats
         all_caveats = []
         for agent_id, output in outputs.items():
             for caveat in output.caveats:
                 all_caveats.append(f"[{agent_id}] {caveat}")
 
-        # Build synthesized report
+        # Extract actions natively
+        all_actions = []
+        for output in outputs.values():
+            all_actions.extend(output.suggested_actions)
+            
+        outputs_text = json.dumps({
+            agent_id: {
+                "answer": out.answer,
+                "confidence": out.confidence.value,
+                "caveats": out.caveats
+            }
+            for agent_id, out in outputs.items()
+        }, indent=2)
+
+        prompt = f"""
+        Synthesize the following agent outputs into a single cohesive executive report for a startup founder.
+        
+        Original Goal: "{goal.raw_text}"
+        
+        Agent Outputs:
+        {outputs_text}
+        
+        Conflicts Detected:
+        {json.dumps(conflicts, indent=2) if conflicts else "None"}
+        
+        Return ONLY valid JSON in this exact schema:
+        {{
+            "synthesized_answer": "<markdown formatted executive summary and synthesis>"
+        }}
+        """
+        
+        try:
+            result = await router.call_model(
+                prompt=prompt,
+                task_description=f"Synthesize report for: {goal.raw_text[:50]}",
+            )
+            content = result.content
+            if content.startswith("```json"): content = content[7:-3]
+            elif content.startswith("```"): content = content[3:-3]
+            
+            parsed = json.loads(content)
+            synthesized_answer = parsed.get("synthesized_answer", "Failed to parse synthesis.")
+            
+        except Exception as e:
+            logger.error(f"Synthesis failed: {e}")
+            synthesized_answer = "\n\n".join(
+                f"**{agent_id}**: {output.answer}"
+                for agent_id, output in outputs.items()
+            )
+
         report = {
             "goal_id": goal.id,
             "goal_text": goal.raw_text,
             "contributing_agents": list(outputs.keys()),
-            "synthesized_answer": "\n\n".join(
-                f"**{agent_id}**: {output.answer}"
-                for agent_id, output in outputs.items()
-            ),
+            "synthesized_answer": synthesized_answer,
             "supporting_data": all_supporting_data,
             "overall_confidence": min_confidence.value,
             "caveats": all_caveats,
             "conflicts_detected": len(conflicts) > 0,
             "conflicts": conflicts,
-            "suggested_actions": [],
+            "suggested_actions": [a.model_dump() for a in all_actions],
         }
-
-        # Collect all suggested actions
-        for output in outputs.values():
-            report["suggested_actions"].extend(
-                [a.model_dump() for a in output.suggested_actions]
-            )
 
         if conflicts:
             report["conflict_note"] = (
@@ -331,7 +415,7 @@ class Synthesizer:
                 "Phase 1: the founder decides; the system surfaces but does not arbitrate."
             )
 
-        return report
+        return report, all_actions
 
 
 class Orchestrator:
@@ -345,20 +429,26 @@ class Orchestrator:
     access data directly (only through specialist dispatch).
     """
 
-    def __init__(
-        self,
-        classifier: GoalClassifier | None = None,
-        decomposer: TaskDecomposer | None = None,
-        conflict_detector: ConflictDetector | None = None,
-        synthesizer: Synthesizer | None = None,
-        available_agents: list[str] | None = None,
-    ):
-        self.classifier = classifier or GoalClassifier()
-        self.decomposer = decomposer or TaskDecomposer()
-        self.conflict_detector = conflict_detector or ConflictDetector()
-        self.synthesizer = synthesizer or Synthesizer()
-        self.available_agents = available_agents or ["AGT-ECHO"]
+    def __init__(self, db_pool=None):
         self.tracer = get_tracer("orchestrator")
+        self.db_pool = db_pool
+        self.classifier = GoalClassifier()
+        self.decomposer = TaskDecomposer()
+        self.synthesizer = Synthesizer()
+        self.conflict_detector = ConflictDetector()
+        self.router = ModelRouter()
+        self.dispatcher = Dispatcher()
+        
+        # Hardcoded registry for Phase 1
+        self.available_agents = {
+            "AGT-FIN": "Finance Agent",
+            "AGT-EA": "Executive Assistant Agent",
+            "AGT-PM": "Project Management Agent",
+            "AGT-SAL": "Sales Agent",
+            "AGT-CS": "Customer Success Agent",
+            "AGT-ANL": "Analytics Agent",
+            "AGT-ECHO": "Echo Test Agent",
+        }
         self._goals: dict[str, Goal] = {}
         self._agent_dispatch_fn: Any = None  # Set by caller to dispatch to real agents
 
@@ -368,28 +458,41 @@ class Orchestrator:
 
     async def process_goal(
         self,
-        tenant_id: str,
-        user_id: str,
+        goal_id: str,
         raw_text: str,
+        context: Any
     ) -> dict[str, Any]:
         """
         Process a founder's goal through the full state machine.
         WDD §1: The core goal-processing workflow.
         """
+        tenant_id = context.tenant_id
+        user_id = context.user_id
         with self.tracer.start_span(
             "orchestrator.process_goal",
             tenant_id=tenant_id,
         ) as span:
+            # tenant_id and user_id already extracted above
+            
             # Step 1: Create goal (persist before processing — PRD FR-1.1)
             goal = Goal(tenant_id=tenant_id, user_id=user_id, raw_text=raw_text)
+            goal.id = goal_id # Override with passed in ID
             goal.trace_id = span.trace_id
             self._goals[goal.id] = goal
+            
+            # Make the goal available to the server
+            self.state = goal.status
+            self.final_report = None
+            
             span.set_attribute("goal.id", goal.id)
 
             try:
                 # Step 2: Classify
                 goal.transition(GoalStatus.CLASSIFYING)
-                goal_type, confidence = self.classifier.classify(raw_text)
+                self.state = goal.status
+                self._update_db_status_sync(goal)
+                
+                goal_type, confidence = await self.classifier.classify(raw_text, self.router)
                 goal.classified_type = goal_type
                 goal.classification_confidence = confidence
                 span.set_attribute("goal.type", goal_type.value)
@@ -412,50 +515,58 @@ class Orchestrator:
 
                 # Step 3: Decompose
                 goal.transition(GoalStatus.DECOMPOSING)
-                tasks = self.decomposer.decompose(goal, self.available_agents)
+                self.state = goal.status
+                self._update_db_status_sync(goal)
+                
+                tasks = await self.decomposer.decompose(goal, list(self.available_agents.keys()), self.router)
                 goal.tasks = tasks
                 span.set_attribute("goal.task_count", len(tasks))
 
                 # Step 4: Dispatch
                 goal.transition(GoalStatus.DISPATCHING)
+                self.state = goal.status
+                self._update_db_status_sync(goal)
+                
                 goal.transition(GoalStatus.AWAITING_SPECIALIST_OUTPUT)
+                self.state = goal.status
+                self._update_db_status_sync(goal)
 
-                # Dispatch tasks to agents
-                for task in tasks:
-                    task.status = TaskStatus.DISPATCHED
-                    task.started_at = datetime.now(timezone.utc)
-
-                    if self._agent_dispatch_fn:
-                        try:
-                            output = await self._agent_dispatch_fn(task)
+                # Dispatch tasks to agents in parallel
+                if self._agent_dispatch_fn:
+                    dispatch_result = await self.dispatcher.dispatch_all(tasks, self._agent_dispatch_fn)
+                    
+                    for task in tasks:
+                        if task.id in dispatch_result.completed:
+                            output = dispatch_result.completed[task.id]
                             # Validate grounding before accepting output
                             grounding_result = validate_grounding(output)
                             if grounding_result.validated_output:
                                 goal.agent_outputs[task.id] = grounding_result.validated_output
                             task.output = grounding_result.validated_output
                             task.status = TaskStatus.COMPLETED
-
                             span.add_event("task_completed", {
                                 "task_id": task.id,
                                 "agent": task.assigned_agent,
                                 "grounding_valid": grounding_result.is_valid,
                             })
-                        except Exception as e:
+                        else:
                             task.status = TaskStatus.FAILED
-                            task.error = str(e)
+                            task.error = dispatch_result.failed.get(task.id, "Unknown error")
                             span.add_event("task_failed", {
                                 "task_id": task.id,
-                                "error": str(e),
+                                "error": task.error,
                             })
-                    else:
+                else:
+                    for task in tasks:
                         task.status = TaskStatus.FAILED
                         task.error = "No agent dispatcher configured"
-
-                    task.completed_at = datetime.now(timezone.utc)
+                        task.completed_at = datetime.now(timezone.utc)
 
                 # Step 5: Synthesize
                 goal.transition(GoalStatus.SYNTHESIZING)
-
+                self.state = goal.status
+                self._update_db_status_sync(goal)
+                
                 if goal.agent_outputs:
                     # Detect conflicts (AIDD §6)
                     has_conflicts, conflict_details = self.conflict_detector.detect_conflicts(
@@ -465,19 +576,39 @@ class Orchestrator:
                     goal.conflict_detail = conflict_details
 
                     # Synthesize report
-                    report = self.synthesizer.synthesize(
-                        goal, goal.agent_outputs, conflict_details
+                    final_report, actions = await self.synthesizer.synthesize(
+                        goal, goal.agent_outputs, conflict_details, self.router
                     )
-                    goal.synthesized_report = report
+                    goal.synthesized_report = final_report
+                    
+                    self.final_report = type('ReportWrapper', (), {'dict': lambda: final_report})
 
-                    # Route actions if any
-                    if report.get("suggested_actions"):
+                    # Step 6: Route Actions (if any)
+                    if actions:
                         goal.transition(GoalStatus.ROUTING_ACTIONS)
-                        goal.transition(GoalStatus.DELIVERED)
-                    else:
-                        goal.transition(GoalStatus.DELIVERED)
+                        self.state = goal.status
+                        self._update_db_status_sync(goal)
+                        
+                        # Execution Service integration happens here in Phase 2
+                        span.add_event("actions_routed", {"count": len(actions)})
+
+                    # Step 7: Deliver
+                    goal.transition(GoalStatus.DELIVERED)
+                    self.state = goal.status
+                    self._update_db_status_sync(goal)
+                    
+                    span.set_status("OK")
+                    return {
+                        "status": "delivered",
+                        "goal_id": goal.id,
+                        "report": final_report,
+                        "actions": [a.model_dump() for a in actions],
+                    }
                 else:
                     goal.transition(GoalStatus.FAILED)
+                    self.state = goal.status
+                    self._update_db_status_sync(goal)
+                    
                     goal.error = "All specialist tasks failed"
                     return {
                         "status": "failed",
@@ -485,20 +616,36 @@ class Orchestrator:
                         "error": goal.error,
                     }
 
-                span.set_attribute("goal.final_status", goal.status.value)
-
+            except Exception as e:
+                goal.transition(GoalStatus.FAILED)
+                self.state = goal.status
+                self._update_db_status_sync(goal)
+                
+                goal.error = str(e)
+                logger.error(f"Goal {goal.id} failed: {e}", exc_info=True)
+                span.set_status("ERROR", str(e))
                 return {
-                    "status": "delivered",
+                    "status": "failed",
                     "goal_id": goal.id,
-                    "trace_id": goal.trace_id,
-                    "report": goal.synthesized_report,
+                    "error": str(e),
                 }
 
-            except Exception as e:
-                goal.status = GoalStatus.FAILED
-                goal.error = str(e)
-                span.set_status("ERROR", str(e))
-                raise
+    def _update_db_status_sync(self, goal):
+        """Helper to update DB status asynchronously without awaiting in the main flow (fire and forget for now)"""
+        import asyncio
+        if self.db_pool:
+            try:
+                loop = asyncio.get_running_loop()
+                loop.create_task(self._do_update_db(goal))
+            except RuntimeError:
+                pass
+
+    async def _do_update_db(self, goal):
+        try:
+            async with self.db_pool.acquire() as conn:
+                await conn.execute("UPDATE goals SET status = $1 WHERE id = $2", goal.status.value, uuid.UUID(goal.id))
+        except Exception as e:
+            logger.error(f"Failed to update goal {goal.id} status in DB: {e}")
 
     def get_goal(self, goal_id: str) -> Goal | None:
         """Retrieve a goal by ID."""

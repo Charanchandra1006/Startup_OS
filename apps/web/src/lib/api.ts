@@ -1,5 +1,9 @@
-export const API_BASE_URL = "http://localhost:3000/api";
-export const DEV_TOKEN_URL = "http://localhost:3000/dev/token";
+export const API_BASE_URL = typeof window !== 'undefined' 
+  ? `${window.location.protocol}//${window.location.hostname}:4000/api` 
+  : "http://localhost:4000/api";
+export const DEV_TOKEN_URL = typeof window !== 'undefined'
+  ? `${window.location.protocol}//${window.location.hostname}:4000/dev/token`
+  : "http://localhost:4000/dev/token";
 
 let currentToken: string | null = null;
 
@@ -8,13 +12,18 @@ let currentToken: string | null = null;
  * In production, this would be handled by Auth0/Clerk middleware.
  */
 export async function getAuthToken(): Promise<string> {
-  if (currentToken) return currentToken;
-
+  if (typeof window !== "undefined") {
+    const token = localStorage.getItem("chief_token");
+    if (token) return token;
+  }
+  
+  // Only fallback to dev token if we're entirely lacking one (e.g. initial demo setup)
+  // In a real prod env, we'd throw an error or redirect to login here.
   const res = await fetch(DEV_TOKEN_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      tenant_id: "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11", // Matches the Demo Company SQL seed
+      tenant_id: "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
       user_id: "b1eebc99-9c0b-4ef8-bb6d-6bb9bd380a22",
       role: "founder"
     })
@@ -25,8 +34,10 @@ export async function getAuthToken(): Promise<string> {
   }
   
   const data = await res.json();
-  currentToken = data.token;
-  return currentToken!;
+  if (typeof window !== "undefined") {
+    localStorage.setItem("chief_token", data.token);
+  }
+  return data.token;
 }
 
 /**
@@ -65,11 +76,14 @@ export async function submitGoal(task_description: string) {
   return apiFetch("/goals", {
     method: "POST",
     body: JSON.stringify({
-      id: crypto.randomUUID(),
       task_description,
       context: {}
     })
   });
+}
+
+export async function fetchGoalStatus(goalId: string) {
+  return apiFetch(`/goals/${goalId}`);
 }
 
 export async function decideApproval(approvalId: string, decision: "approve" | "reject") {

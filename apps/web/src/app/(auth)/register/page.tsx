@@ -24,7 +24,7 @@ export default function RegisterPage() {
     setError("");
 
     try {
-      const res = await fetch("http://localhost:3000/api/auth/register", {
+      const res = await fetch("http://localhost:4000/api/auth/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(formData),
@@ -43,7 +43,7 @@ export default function RegisterPage() {
   };
 
   const handleGoogleLogin = () => {
-    window.location.href = "http://localhost:3000/api/auth/google/login?tenant_id=a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11";
+    window.location.href = "http://localhost:4000/api/auth/google/login?tenant_id=a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11";
   };
 
   return (

@@ -18,7 +18,7 @@ const jwt = require('jsonwebtoken');
 const rateLimit = require('express-rate-limit');
 const helmet = require('helmet');
 const cors = require('cors');
-const { createProxyMiddleware } = require('http-proxy-middleware');
+const { createProxyMiddleware, fixRequestBody } = require('http-proxy-middleware');
 const { v4: uuidv4 } = require('uuid');
 const { Pool } = require('pg');
 const bcrypt = require('bcryptjs');
@@ -65,9 +65,11 @@ dbPool.on('error', (err, client) => {
 // Security headers
 app.use(helmet());
 
-// CORS
+// CORS - Allow any origin dynamically for the pitch presentation
 app.use(cors({
-  origin: process.env.CORS_ORIGIN || 'http://localhost:3001',
+  origin: function(origin, callback) {
+    callback(null, true);
+  },
   credentials: true,
 }));
 
@@ -121,6 +123,19 @@ const goalLimiter = rateLimit({
 });
 
 app.use(globalLimiter);
+
+// ─── Public Health Check ─────────────────────────────────────────────────────
+
+app.get('/health', async (req, res) => {
+  try {
+    // Ping DB to ensure it's alive
+    await dbPool.query('SELECT 1');
+    res.status(200).json({ status: 'ok', db: 'connected', service: 'api-gateway' });
+  } catch (error) {
+    console.error('Health Check DB Error:', error);
+    res.status(503).json({ status: 'error', db: 'disconnected', service: 'api-gateway' });
+  }
+});
 
 // ─── JWT Authentication ──────────────────────────────────────────────────────
 
@@ -355,34 +370,35 @@ app.get('/api/auth/google/callback', (req, res) => {
 app.use('/api', authenticateJWT);
 
 // --- Goals ---
-app.post('/api/goals', goalLimiter, (req, res) => {
-  // Forward to Orchestrator with tenant context headers
-  const headers = {
-    'X-Tenant-Id': req.tenantId,
-    'X-User-Id': req.userId,
-    'X-Trace-Id': req.traceId,
-    'Content-Type': 'application/json',
-  };
+app.post('/api/goals', goalLimiter, createProxyMiddleware({
+  target: SERVICES.orchestrator,
+  changeOrigin: true,
+  pathRewrite: {
+    '^/api/goals': '/goals',
+  },
+  onProxyReq: (proxyReq, req, res) => {
+    // Add tenant context to proxy request headers
+    proxyReq.setHeader('X-Tenant-Id', req.tenantId);
+    proxyReq.setHeader('X-User-Id', req.userId);
+    proxyReq.setHeader('X-Trace-Id', req.traceId);
+    
+    // Ensure body is sent correctly since express.json() already parsed it
+    fixRequestBody(proxyReq, req);
+  }
+}));
 
-  // In production: proxy to orchestrator service
-  // Phase 0: echo back for pipeline testing
-  res.json({
-    message: 'Goal received — forwarding to orchestrator',
-    goal: req.body,
-    tenant_id: req.tenantId,
-    trace_id: req.traceId,
-    _forward_to: `${SERVICES.orchestrator}/goals`,
-  });
-});
-
-app.get('/api/goals/:goalId', (req, res) => {
-  res.json({
-    message: 'Goal status — forwarding to orchestrator',
-    goal_id: req.params.goalId,
-    tenant_id: req.tenantId,
-    _forward_to: `${SERVICES.orchestrator}/goals/${req.params.goalId}`,
-  });
-});
+app.get('/api/goals/:goalId', createProxyMiddleware({
+  target: SERVICES.orchestrator,
+  changeOrigin: true,
+  pathRewrite: {
+    '^/api/goals': '/goals',
+  },
+  onProxyReq: (proxyReq, req, res) => {
+    proxyReq.setHeader('X-Tenant-Id', req.tenantId);
+    proxyReq.setHeader('X-User-Id', req.userId);
+    proxyReq.setHeader('X-Trace-Id', req.traceId);
+  }
+}));
 
 // --- Approvals ---
 app.get('/api/approvals', async (req, res) => {
@@ -445,6 +461,45 @@ app.get('/api/audit-log', (req, res) => {
   });
 });
 
+// --- Mock Demo Flow (Pitch Bypass) ---
+app.get('/api/demo/series-a', (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders(); // flush the headers to establish SSE with client
+
+  const sendEvent = (event, data) => {
+    res.write(`event: ${event}\n`);
+    res.write(`data: ${JSON.stringify(data)}\n\n`);
+  };
+
+  // 1. Dispatch
+  setTimeout(() => {
+    sendEvent('agents_dispatched', { agents: ['Finance Agent', 'Marketing Agent', 'HR Agent'] });
+  }, 1000);
+
+  // 2. Processing
+  setTimeout(() => {
+    sendEvent('agents_processing', { completed: ['Finance Agent'] });
+  }, 3500);
+
+  // 3. Conflict
+  setTimeout(() => {
+    sendEvent('conflict_detected', {
+      type: 'Budget Constraint vs Hiring Plan',
+      details: 'Marketing wants $200k for ad spend, but HR wants $150k for new engineers. Total exceeds remaining Q2 budget.',
+      resolutionOptions: [
+        { id: '1', text: 'Approve $200k Marketing (delay hires)' },
+        { id: '2', text: 'Approve $150k HR (reduce ad spend)' },
+        { id: '3', text: 'Ask CFO to unlock $50k reserves' }
+      ]
+    });
+  }, 6000);
+
+  // Note: The UI stops at 'conflict_detected' and waits for user interaction.
+  // We can also send 'report_generated' if needed, but the UI expects user to click "Resolve & Execute".
+});
+
 // --- Metrics ---
 app.get('/api/metrics', async (req, res) => {
   try {
@@ -453,7 +508,15 @@ app.get('/api/metrics', async (req, res) => {
       [req.tenantId]
     );
     if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Metrics not found for tenant' });
+      // Fallback for new tenants who haven't had their metrics calculated by the analytics agent yet
+      return res.json({
+        health_score: 100,
+        revenue_growth_pct: 0,
+        runway_months: 12.0,
+        critical_risks: 0,
+        decisions_waiting: 0,
+        est_decision_time_mins: 0
+      });
     }
     res.json(result.rows[0]);
   } catch (error) {

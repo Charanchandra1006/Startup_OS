@@ -35,7 +35,7 @@ from pydantic import BaseModel, Field
 # Ensure packages can be imported
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../packages/shared-types/python')))
-from packages.integrations.google.auth import get_google_flow, handle_google_callback, oauth_state_store
+from packages.integrations.google.auth import build_authorization_url, handle_google_callback
 
 from chief_types.denylist_enforcer import check_denylist, assert_not_denied
 from chief_types.models import RiskTier
@@ -454,30 +454,31 @@ async def health():
 @app.get("/auth/google/login")
 async def google_login(tenant_id: str, request: Request):
     try:
-        flow = get_google_flow()
-        authorization_url, state = flow.authorization_url(
-            access_type='offline',
-            include_granted_scopes='true',
-            prompt='consent',
-            state=tenant_id  # Using tenant_id as state for local dev
-        )
-        oauth_state_store[state] = getattr(flow, 'code_verifier', None)
+        authorization_url = build_authorization_url(state=tenant_id)
         return RedirectResponse(authorization_url)
     except ValueError as e:
         return HTMLResponse(f"<h1>Configuration Error</h1><p>{e}</p>", status_code=500)
 
 @app.get("/auth/google/callback")
 async def google_callback(state: str, code: str, request: Request):
-    from vault import vault
-    # The callback handles the entire flow: tokens, users DB, integrations DB, and JWT
-    result = await handle_google_callback(state, code, vault.store_credential)
-    
-    token = result["token"]
-    user = result["user"]
-    
-    # Redirect back to the frontend with the JWT (Assuming frontend is on 3001)
-    frontend_url = os.environ.get("FRONTEND_URL", "http://localhost:3001")
-    return RedirectResponse(f"{frontend_url}/auth/callback?token={token}")
+    try:
+        from vault import vault
+        # The callback handles the entire flow: tokens, users DB, integrations DB, and JWT
+        result = await handle_google_callback(state, code, vault.store_credential)
+        
+        token = result["token"]
+        user = result["user"]
+        
+        # Redirect back to the frontend with the JWT
+        frontend_url = os.environ.get("FRONTEND_URL", "http://localhost:3001")
+        return RedirectResponse(f"{frontend_url}/auth/callback?token={token}")
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return HTMLResponse(
+            f"<h1>Google Login Failed</h1><p>{str(e)}</p><a href='/'>Go Back</a>",
+            status_code=500
+        )
 
 if __name__ == "__main__":
     import uvicorn

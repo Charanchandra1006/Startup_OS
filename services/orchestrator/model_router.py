@@ -12,12 +12,19 @@ The router applies cost/quality trade-offs and respects token budgets.
 
 from __future__ import annotations
 
-import logging
 import os
+import sys
+import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
+from dotenv import load_dotenv
+
+# Ensure packages can be imported
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../packages/shared-types/python')))
+load_dotenv(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../.env')))
 
 from chief_types.observability import get_tracer
 from chief_types.llm_client import LLMClient
@@ -61,7 +68,7 @@ class ModelCallResult:
 # ─── Model Configurations ───────────────────────────────────────────────────
 
 GEMINI_PRO_CONFIG = ModelConfig(
-    model_id="gemini-2.5-pro",
+    model_id="gemini-2.5-flash",
     provider="google",
     tier=ModelTier.COMPLEX_REASONING,
     max_tokens=8192,
@@ -86,7 +93,7 @@ GPT_4O_CONFIG = ModelConfig(
     tier=ModelTier.TOOL_EXECUTION,
     max_tokens=4096,
     timeout_seconds=90,
-    fallback_model_id="gemini-2.5-pro",
+    fallback_model_id="gemini-2.5-flash",
     fallback_provider="google",
 )
 
@@ -235,19 +242,17 @@ class ModelRouter:
 
             return result
 
-    def get_cost_summary(self) -> dict[str, Any]:
-        """Get cost summary for all model calls."""
-        total_cost = sum(r.cost_estimate for r in self._call_history)
-        frontier_calls = [r for r in self._call_history if r.tier == ModelTier.FRONTIER]
-        standard_calls = [r for r in self._call_history if r.tier == ModelTier.STANDARD]
+    def get_summary(self) -> dict[str, Any]:
+        """Get summary of all model calls."""
+        complex_calls = [r for r in self._call_history if r.tier in (ModelTier.ORCHESTRATOR, ModelTier.COMPLEX_REASONING)]
+        routine_calls = [r for r in self._call_history if r.tier == ModelTier.ROUTINE_CONTENT]
+        tool_calls = [r for r in self._call_history if r.tier == ModelTier.TOOL_EXECUTION]
 
         return {
             "total_calls": len(self._call_history),
-            "total_cost_usd": round(total_cost, 6),
-            "frontier_calls": len(frontier_calls),
-            "frontier_cost_usd": round(sum(r.cost_estimate for r in frontier_calls), 6),
-            "standard_calls": len(standard_calls),
-            "standard_cost_usd": round(sum(r.cost_estimate for r in standard_calls), 6),
+            "complex_calls": len(complex_calls),
+            "routine_calls": len(routine_calls),
+            "tool_calls": len(tool_calls),
             "total_prompt_tokens": sum(r.prompt_tokens for r in self._call_history),
             "total_completion_tokens": sum(r.completion_tokens for r in self._call_history),
         }
