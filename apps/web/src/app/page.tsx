@@ -20,8 +20,43 @@ export default function FounderDashboardPage() {
   const [activeTab, setActiveTab] = useState<NavTab>("dashboard");
   const [founderName, setFounderName] = useState("Charan Chandra");
   const [founderEmail, setFounderEmail] = useState("charan@visionai.tech");
+  const [authError, setAuthError] = useState("");
 
   useEffect(() => {
+    // 1. Check for Google OAuth callback params in URL (after Google redirect)
+    const params = new URLSearchParams(window.location.search);
+    const googleToken = params.get("google_access_token");
+    const googleSavedAt = params.get("google_token_saved_at");
+    const urlName = params.get("user_name");
+    const urlEmail = params.get("user_email");
+    const urlPicture = params.get("user_picture");
+    const urlAuthError = params.get("auth_error");
+
+    if (urlAuthError) {
+      setAuthError(decodeURIComponent(urlAuthError));
+      // Clean URL
+      window.history.replaceState({}, "", "/");
+    }
+
+    if (googleToken && urlEmail) {
+      // Google OAuth flow completed — store everything
+      localStorage.setItem("google_oauth_token", googleToken);
+      if (googleSavedAt) localStorage.setItem("google_oauth_token_saved_at", googleSavedAt);
+      const name = urlName || "Founder";
+      const email = urlEmail;
+      localStorage.setItem("chief_user_name", name);
+      localStorage.setItem("chief_user_email", email);
+      localStorage.setItem("chief_token", `google_${Date.now()}`); // mark as authenticated
+      if (urlPicture) localStorage.setItem("chief_user_picture", urlPicture);
+      setFounderName(name);
+      setFounderEmail(email);
+      setIsAuthenticated(true);
+      // Clean URL so token doesn't sit in browser history
+      window.history.replaceState({}, "", "/");
+      return;
+    }
+
+    // 2. Check for existing local session
     const savedToken = localStorage.getItem("chief_token");
     const savedName = localStorage.getItem("chief_user_name");
     const savedEmail = localStorage.getItem("chief_user_email");
@@ -32,16 +67,10 @@ export default function FounderDashboardPage() {
     }
   }, []);
 
-  const getInitials = (name: string) => {
-    const parts = name.trim().split(" ");
-    if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-    return name.slice(0, 2).toUpperCase();
-  };
-  const founderInitials = getInitials(founderName);
-
   if (!isAuthenticated) {
     return (
       <AuthScreen
+        authError={authError}
         onLogin={(name, email) => {
           if (name) setFounderName(name);
           if (email) setFounderEmail(email);
@@ -50,6 +79,13 @@ export default function FounderDashboardPage() {
       />
     );
   }
+
+  const getInitials = (name: string) => {
+    const parts = name.trim().split(" ");
+    if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+    return name.slice(0, 2).toUpperCase();
+  };
+  const founderInitials = getInitials(founderName);
 
   const renderContent = () => {
     switch (activeTab) {

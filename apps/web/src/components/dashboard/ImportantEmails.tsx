@@ -71,13 +71,33 @@ export function ImportantEmails() {
   const [googleToken, setGoogleToken] = useState("");
   const [syncStatus, setSyncStatus] = useState("Connected to Workspace (charanchandra1006@gmail.com)");
   const [isRealApiConnected, setIsRealApiConnected] = useState(false);
+  const [tokenSavedAt, setTokenSavedAt] = useState<number | null>(null);
+  const [tokenAgeMinutes, setTokenAgeMinutes] = useState<number | null>(null);
+  const [isTokenExpired, setIsTokenExpired] = useState(false);
 
   useEffect(() => {
     const savedToken = localStorage.getItem("google_oauth_token");
+    const savedAt = localStorage.getItem("google_oauth_token_saved_at");
     if (savedToken) {
       setGoogleToken(savedToken);
-      setIsRealApiConnected(true);
-      fetchRealGmailData(savedToken);
+      if (savedAt) {
+        const savedAtMs = parseInt(savedAt, 10);
+        const ageMs = Date.now() - savedAtMs;
+        const ageMins = Math.floor(ageMs / 60000);
+        setTokenSavedAt(savedAtMs);
+        setTokenAgeMinutes(ageMins);
+        if (ageMins >= 55) {
+          // Token is close to or past 1-hour expiry
+          setIsTokenExpired(true);
+          setSyncStatus("Token expired. Please generate a new OAuth token from Google OAuth Playground.");
+        } else {
+          setIsRealApiConnected(true);
+          fetchRealGmailData(savedToken);
+        }
+      } else {
+        setIsRealApiConnected(true);
+        fetchRealGmailData(savedToken);
+      }
     }
   }, []);
 
@@ -85,85 +105,82 @@ export function ImportantEmails() {
     setIsSyncing(true);
     setSyncStatus("Fetching live emails from Gmail API...");
     try {
-      const response = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=6", {
+      // Use server-side proxy to avoid CORS restrictions
+      const response = await fetch("/api/google/gmail?maxResults=6", {
         headers: {
-          Authorization: `Bearer ${token}`,
+          Authorization: `Bearer ${token.trim()}`,
         },
       });
 
-      if (!response.ok) {
-        throw new Error("Gmail API token expired or invalid");
-      }
-
       const data = await response.json();
-      if (data.messages && data.messages.length > 0) {
-        const liveMessages = [];
-        for (const msg of data.messages.slice(0, 5)) {
-          const detailRes = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${msg.id}`, {
-            headers: { Authorization: `Bearer ${token}` },
-          });
-          if (detailRes.ok) {
-            const detail = await detailRes.json();
-            const headers = detail.payload?.headers || [];
-            const getHeader = (name: string) => headers.find((h: any) => h.name.toLowerCase() === name.toLowerCase())?.value || "Unknown";
-            const subject = getHeader("Subject") || "(No Subject)";
-            const from = getHeader("From") || "Unknown Sender";
-            const dateStr = getHeader("Date") || "Just now";
-            const snippet = detail.snippet || "No preview available.";
 
-            liveMessages.push({
-              id: detail.id,
-              sender: from.split("<")[0].trim() || from,
-              senderEmail: from.includes("<") ? from.split("<")[1].replace(">", "") : from,
-              role: "Verified Gmail Sender",
-              subject: subject,
-              category: "Investors",
-              time: "Live Sync",
-              priority: "High",
-              tldr: snippet,
-              body: snippet + "\n\n[Full raw message retrieved via Google Workspace Gmail API]",
-              read: false,
-            });
-          }
-        }
-        if (liveMessages.length > 0) {
-          setEmails(liveMessages);
-          setIsRealApiConnected(true);
-          setSyncStatus("Live Gmail API Active (charanchandra1006@gmail.com)");
-        }
+      if (!response.ok) {
+        const detail = data?.detail?.error?.message || data?.error || "Token may be expired or missing required scopes.";
+        setSyncStatus(`Connection failed: ${detail}`);
+        setIsRealApiConnected(false);
+        setIsSyncing(false);
+        return;
       }
-    } catch (err) {
-      console.warn("Falling back to simulated sync:", err);
+
+      if (data.messages && data.messages.length > 0) {
+        const liveMessages = data.messages.map((msg: any) => ({
+          id: msg.id,
+          sender: msg.sender || "Unknown Sender",
+          senderEmail: msg.senderEmail || "unknown@gmail.com",
+          role: "Verified Gmail Sender",
+          subject: msg.subject || "(No Subject)",
+          category: "Investors",
+          time: msg.dateHeader ? new Date(msg.dateHeader).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "Live Sync",
+          priority: msg.unread ? "High" : "Medium",
+          tldr: msg.snippet,
+          body: msg.snippet + "\n\n[Full message retrieved via Gmail API proxy]",
+          read: !msg.unread,
+        }));
+        setEmails(liveMessages);
+        setIsRealApiConnected(true);
+        setSyncStatus(`Live Gmail API Active — ${liveMessages.length} messages loaded (charanchandra1006@gmail.com)`);
+      } else {
+        setSyncStatus("Gmail API connected. No messages found in inbox.");
+        setIsRealApiConnected(true);
+      }
+    } catch (err: any) {
+      console.error("Gmail proxy error:", err);
       setIsRealApiConnected(false);
-      setSyncStatus("Synced via Google Workspace Gateway (charanchandra1006@gmail.com)");
+      setSyncStatus(`Error: ${err.message || "Could not reach Gmail proxy. Check console."}`);
     } finally {
       setIsSyncing(false);
     }
   };
 
   const handleSyncNow = () => {
-    setIsSyncing(true);
     const token = localStorage.getItem("google_oauth_token") || googleToken;
-    if (token && token.startsWith("ya29.")) {
-      fetchRealGmailData(token);
+    if (token && token.trim().length > 10) {
+      fetchRealGmailData(token.trim());
     } else {
-      setTimeout(() => {
-        setIsSyncing(false);
-        setSyncStatus("Synced via Google Workspace Gateway (charanchandra1006@gmail.com)");
-        alert("Google Workspace Inbox Synced!\n\nConnected Account: charanchandra1006@gmail.com\nStatus: 4 executive threads highlighted.");
-      }, 800);
+      // No token saved — open the API settings modal
+      setSyncStatus("No OAuth token saved. Click 'API Settings' to connect your Gmail.");
+      setShowGoogleModal(true);
     }
   };
 
   const handleSaveToken = (e: React.FormEvent) => {
     e.preventDefault();
-    if (googleToken.trim()) {
-      localStorage.setItem("google_oauth_token", googleToken.trim());
+    const trimmed = googleToken.trim();
+    if (trimmed) {
+      localStorage.setItem("google_oauth_token", trimmed);
+      localStorage.setItem("google_oauth_token_saved_at", Date.now().toString());
+      setTokenSavedAt(Date.now());
+      setTokenAgeMinutes(0);
+      setIsTokenExpired(false);
       setIsRealApiConnected(true);
       setShowGoogleModal(false);
-      fetchRealGmailData(googleToken.trim());
+      fetchRealGmailData(trimmed);
     } else {
       localStorage.removeItem("google_oauth_token");
+      localStorage.removeItem("google_oauth_token_saved_at");
+      setTokenSavedAt(null);
+      setTokenAgeMinutes(null);
+      setIsTokenExpired(false);
       setIsRealApiConnected(false);
       setShowGoogleModal(false);
       setEmails(defaultEmails);
@@ -323,7 +340,7 @@ export function ImportantEmails() {
             <div className="flex items-center justify-between pb-3 border-b border-neutral-200">
               <div className="flex items-center gap-2">
                 <Key className="h-4 w-4 text-black" />
-                <h4 className="text-sm font-bold text-black">Google Workspace API Connector</h4>
+                <h4 className="text-sm font-bold text-black">Google Gmail API Connector</h4>
               </div>
               <button
                 onClick={() => setShowGoogleModal(false)}
@@ -333,50 +350,93 @@ export function ImportantEmails() {
               </button>
             </div>
 
-            <form onSubmit={handleSaveToken} className="space-y-4">
-              <div className="p-3.5 rounded-xl bg-neutral-50 border border-neutral-200 text-xs space-y-1">
-                <span className="font-bold text-black block">Connected Account: charanchandra1006@gmail.com</span>
-                <p className="text-neutral-600 leading-relaxed">
-                  You are currently synced to your Google Workspace executive profile. To fetch real-time unread messages directly from Google API servers, paste your OAuth Bearer Token below.
+            {/* Token Expiry Warning */}
+            {isTokenExpired && (
+              <div className="p-3.5 rounded-xl bg-red-50 border border-red-200 text-xs space-y-1">
+                <span className="font-extrabold text-red-700 block font-mono uppercase tracking-wider">Token Expired</span>
+                <p className="text-red-600 leading-relaxed">
+                  Your OAuth token was saved {tokenAgeMinutes ?? "60"}+ minutes ago. Google tokens expire after <strong>1 hour</strong>. You must generate a fresh token from OAuth Playground.
                 </p>
               </div>
+            )}
 
+            {/* Step-by-step instructions */}
+            <div className="p-4 rounded-xl bg-neutral-50 border border-neutral-200 space-y-3">
+              <span className="text-[10px] font-mono font-extrabold text-black uppercase tracking-wider block">How to get a fresh token (takes 90 seconds)</span>
+              <ol className="space-y-2.5">
+                {[
+                  { step: "1", text: "Open Google OAuth 2.0 Playground", sub: "Click the link below to open it in a new tab", action: (
+                    <a
+                      href="https://developers.google.com/oauthplayground/"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-black text-white text-[10px] font-mono font-bold hover:bg-neutral-800 transition-colors cursor-pointer"
+                    >
+                      <ExternalLink className="h-3 w-3" />
+                      Open OAuth Playground
+                    </a>
+                  ) },
+                  { step: "2", text: "In Step 1: Select & authorize APIs", sub: "Search for and select this scope:", action: (
+                    <code className="block text-[10px] bg-neutral-200 rounded px-2 py-1 font-mono text-black mt-1 select-all">https://www.googleapis.com/auth/gmail.readonly</code>
+                  ) },
+                  { step: "3", text: "Click \"Authorize APIs\" and sign in", sub: "Sign in with charanchandra1006@gmail.com when prompted.", action: null },
+                  { step: "4", text: "Click \"Exchange authorization code for tokens\"", sub: "Then copy the Access Token from the response box.", action: null },
+                  { step: "5", text: "Paste the Access Token below and click Connect", sub: "Tokens are valid for 1 hour. Regenerate when expired.", action: null },
+                ].map(({ step, text, sub, action }) => (
+                  <li key={step} className="flex items-start gap-3">
+                    <span className="h-5 w-5 rounded-full bg-black text-white text-[10px] font-mono font-bold flex items-center justify-center shrink-0 mt-0.5">{step}</span>
+                    <div className="min-w-0">
+                      <span className="text-xs font-semibold text-black block">{text}</span>
+                      <span className="text-[11px] text-neutral-500 leading-relaxed">{sub}</span>
+                      {action && <div className="mt-1.5">{action}</div>}
+                    </div>
+                  </li>
+                ))}
+              </ol>
+            </div>
+
+            <form onSubmit={handleSaveToken} className="space-y-3">
               <div>
                 <label className="block text-xs font-bold text-black mb-1 font-mono">
-                  Google OAuth Access Token (e.g. ya29.a0...)
+                  Paste Access Token Here
                 </label>
                 <input
-                  type="password"
+                  type="text"
                   value={googleToken}
                   onChange={(e) => setGoogleToken(e.target.value)}
-                  placeholder="Paste Google OAuth Token or leave blank for default sync..."
+                  placeholder="ya29.a0A..."
                   className="w-full p-3 rounded-xl bg-neutral-50 border border-neutral-300 text-xs text-black font-mono focus:outline-none focus:border-black transition-colors"
                 />
                 <p className="text-[10px] text-neutral-400 mt-1 font-mono">
-                  Tokens can be generated instantly from Google OAuth Playground with scope: https://www.googleapis.com/auth/gmail.readonly
+                  Token starts with <strong>ya29.</strong> — paste the full string, do NOT include the word &quot;Bearer&quot;
                 </p>
               </div>
 
-              <div className="pt-4 border-t border-neutral-200 flex items-center justify-end gap-2.5">
+              <div className="pt-4 border-t border-neutral-200 flex items-center justify-between gap-2.5">
                 <button
                   type="button"
                   onClick={() => {
                     setGoogleToken("");
                     localStorage.removeItem("google_oauth_token");
+                    localStorage.removeItem("google_oauth_token_saved_at");
                     setIsRealApiConnected(false);
+                    setIsTokenExpired(false);
+                    setTokenAgeMinutes(null);
                     setEmails(defaultEmails);
                     setShowGoogleModal(false);
+                    setSyncStatus("Disconnected. Showing workspace defaults.");
                   }}
                   className="px-3.5 py-2 rounded-xl bg-neutral-100 hover:bg-neutral-200 text-neutral-700 text-xs font-medium transition-colors cursor-pointer border border-neutral-300"
                 >
-                  Reset to Default Sync
+                  Disconnect
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 rounded-xl bg-black hover:bg-neutral-800 text-white font-bold text-xs shadow-sm flex items-center gap-1.5 transition-colors cursor-pointer"
+                  disabled={!googleToken.trim()}
+                  className="px-5 py-2 rounded-xl bg-black hover:bg-neutral-800 text-white font-bold text-xs shadow-sm flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                 >
-                  <Check className="h-3.5 w-3.5" />
-                  <span>Save & Connect API</span>
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                  <span>Connect Gmail</span>
                 </button>
               </div>
             </form>

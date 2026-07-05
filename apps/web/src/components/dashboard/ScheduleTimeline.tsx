@@ -74,63 +74,47 @@ export function ScheduleTimeline() {
     setIsSyncing(true);
     setSyncStatus("Fetching live events from Google Calendar API...");
     try {
-      const now = new Date().toISOString();
-      const response = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${encodeURIComponent(now)}&maxResults=6&orderBy=startTime&singleEvents=true`, {
+      // Use server-side proxy to avoid CORS restrictions
+      const response = await fetch("/api/google/calendar?maxResults=8", {
         headers: {
-          Authorization: `Bearer ${token}`,
+          Authorization: `Bearer ${token.trim()}`,
         },
       });
 
-      if (!response.ok) {
-        throw new Error("Google Calendar API token expired or invalid");
-      }
-
       const data = await response.json();
-      if (data.items && data.items.length > 0) {
-        const liveEvents = data.items.map((item: any, i: number) => {
-          const start = item.start?.dateTime ? new Date(item.start.dateTime) : new Date();
-          const end = item.end?.dateTime ? new Date(item.end.dateTime) : new Date(start.getTime() + 30 * 60000);
-          const durationMins = Math.round((end.getTime() - start.getTime()) / 60000) || 30;
-          const timeStr = start.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-          const attendeesList = item.attendees ? item.attendees.map((a: any) => a.displayName || a.email.split("@")[0]) : ["Charan Chandra", "Executive Invitee"];
 
-          return {
-            id: item.id || `live-${i}`,
-            time: timeStr,
-            title: item.summary || "(No Title)",
-            type: "Google Calendar",
-            duration: `${durationMins} min`,
-            attendees: attendeesList,
-            location: item.location || item.hangoutLink || "Google Meet / Online",
-            status: i === 0 ? "In Progress" : "Upcoming",
-            briefing: item.description || `Verified Google Calendar event for account charanchandra1006@gmail.com. Organizer: ${item.organizer?.email || "Self"}.`,
-          };
-        });
-
-        setEvents(liveEvents);
-        setIsRealApiConnected(true);
-        setSyncStatus("Live Google Calendar API Active (charanchandra1006@gmail.com)");
+      if (!response.ok) {
+        const detail = data?.detail?.error?.message || data?.error || "Token may be expired or missing required scopes.";
+        setSyncStatus(`Connection failed: ${detail}`);
+        setIsRealApiConnected(false);
+        setIsSyncing(false);
+        return;
       }
-    } catch (err) {
-      console.warn("Falling back to simulated calendar sync:", err);
+
+      if (data.events && data.events.length > 0) {
+        setEvents(data.events);
+        setIsRealApiConnected(true);
+        setSyncStatus(`Live Google Calendar API Active — ${data.events.length} events loaded (charanchandra1006@gmail.com)`);
+      } else {
+        setSyncStatus("Calendar API connected. No upcoming events found.");
+        setIsRealApiConnected(true);
+      }
+    } catch (err: any) {
+      console.error("Calendar proxy error:", err);
       setIsRealApiConnected(false);
-      setSyncStatus("Synced via Google Workspace Gateway (charanchandra1006@gmail.com)");
+      setSyncStatus(`Error: ${err.message || "Could not reach Calendar proxy. Check console."}`);
     } finally {
       setIsSyncing(false);
     }
   };
 
   const handleSyncNow = () => {
-    setIsSyncing(true);
     const token = localStorage.getItem("google_oauth_token") || googleToken;
-    if (token && token.startsWith("ya29.")) {
-      fetchRealCalendarData(token);
+    if (token && token.trim().length > 10) {
+      fetchRealCalendarData(token.trim());
     } else {
-      setTimeout(() => {
-        setIsSyncing(false);
-        setSyncStatus("Synced via Google Workspace Gateway (charanchandra1006@gmail.com)");
-        alert("Google Calendar Synced!\n\nConnected Account: charanchandra1006@gmail.com\nStatus: 4 executive meetings loaded.");
-      }, 800);
+      setSyncStatus("No OAuth token saved. Click 'API Settings' to connect your Calendar.");
+      setShowGoogleModal(true);
     }
   };
 

@@ -1,21 +1,45 @@
 "use client";
 
 import React, { useState } from "react";
-import { Sparkles, ArrowRight, ShieldCheck, Lock, Mail, Key, User, Building, AlertCircle, CheckCircle2 } from "lucide-react";
+import {
+  Sparkles, ArrowRight, ShieldCheck, Lock, Mail, Key,
+  User, Building, AlertCircle, CheckCircle2,
+} from "lucide-react";
 
 interface AuthScreenProps {
   onLogin: (name?: string, email?: string) => void;
+  authError?: string;
 }
 
-export function AuthScreen({ onLogin }: AuthScreenProps) {
+// Google "G" SVG logo
+function GoogleIcon({ size = 18 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
+      <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z" />
+      <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z" />
+      <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z" />
+      <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z" />
+      <path fill="none" d="M0 0h48v48H0z" />
+    </svg>
+  );
+}
+
+export function AuthScreen({ onLogin, authError }: AuthScreenProps) {
   const [mode, setMode] = useState<"signin" | "register">("signin");
   const [name, setName] = useState("Charan Chandra");
   const [companyName, setCompanyName] = useState("VisionAI Technologies");
   const [email, setEmail] = useState("charanchandra1006@gmail.com");
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState("");
+  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
+  const [error, setError] = useState(authError || "");
   const [successMsg, setSuccessMsg] = useState("");
+
+  const handleGoogleLogin = () => {
+    setIsGoogleLoading(true);
+    // Redirect to our server-side OAuth initiation route
+    window.location.href = "/api/auth/google";
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -23,13 +47,15 @@ export function AuthScreen({ onLogin }: AuthScreenProps) {
     setError("");
     setSuccessMsg("");
 
-    const endpoint = mode === "signin" 
-      ? "http://localhost:4000/api/auth/login" 
-      : "http://localhost:4000/api/auth/register";
+    const endpoint =
+      mode === "signin"
+        ? "http://localhost:4000/api/auth/login"
+        : "http://localhost:4000/api/auth/register";
 
-    const payload = mode === "signin"
-      ? { email, password: password || "demo_password" }
-      : { name, company_name: companyName, email, password: password || "demo_password" };
+    const payload =
+      mode === "signin"
+        ? { email, password: password || "demo_password" }
+        : { name, company_name: companyName, email, password: password || "demo_password" };
 
     try {
       const res = await fetch(endpoint, {
@@ -37,35 +63,31 @@ export function AuthScreen({ onLogin }: AuthScreenProps) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-
       const data = await res.json();
 
       if (!res.ok) {
-        throw new Error(data.error || `${mode === "signin" ? "Login" : "Registration"} failed. Please check your details.`);
+        throw new Error(
+          data.error ||
+            `${mode === "signin" ? "Login" : "Registration"} failed. Please check your details.`
+        );
       }
 
-      // Save credentials in storage
-      if (data.token) {
-        localStorage.setItem("chief_token", data.token);
-      }
+      if (data.token) localStorage.setItem("chief_token", data.token);
       const loggedName = data.user?.name || name;
       const loggedEmail = data.user?.email || email;
       localStorage.setItem("chief_user_name", loggedName);
       localStorage.setItem("chief_user_email", loggedEmail);
 
-      setSuccessMsg(`Successfully authenticated as ${loggedEmail}! Redirecting...`);
-      setTimeout(() => {
-        onLogin(loggedName, loggedEmail);
-      }, 500);
+      setSuccessMsg(`Authenticated as ${loggedEmail}. Loading dashboard...`);
+      setTimeout(() => onLogin(loggedName, loggedEmail), 500);
     } catch (err: any) {
-      console.warn("Backend authentication error:", err.message);
-      // If backend fails (e.g. invalid credentials or DB offline), show error with quick demo fallback option
+      console.warn("Auth error:", err.message);
       if (mode === "signin" && err.message.includes("Invalid credentials")) {
-        setError("Invalid email or password. If you haven't created an account yet, click 'Create Account' above!");
+        setError("Invalid email or password.");
       } else if (mode === "register" && err.message.includes("already exists")) {
-        setError("This email is already registered. Please switch to 'Sign In' above!");
+        setError("Email already registered. Switch to Sign In.");
       } else {
-        setError(`${err.message} (You can also use 'Quick Demo Access' below if offline).`);
+        setError(err.message + " — or use Quick Demo Access below.");
       }
     } finally {
       setIsLoading(false);
@@ -77,8 +99,9 @@ export function AuthScreen({ onLogin }: AuthScreenProps) {
     setTimeout(() => {
       localStorage.setItem("chief_user_name", name);
       localStorage.setItem("chief_user_email", email);
+      localStorage.setItem("chief_token", "demo_session");
       onLogin(name, email);
-    }, 400);
+    }, 300);
   };
 
   return (
@@ -101,14 +124,58 @@ export function AuthScreen({ onLogin }: AuthScreenProps) {
 
       {/* Main Center Card */}
       <main className="w-full max-w-sm mx-auto my-auto py-8">
-        <div className="space-y-6 text-center">
-          <div className="space-y-2">
+        <div className="space-y-5">
+          <div className="space-y-2 text-center">
             <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-black">
               {mode === "signin" ? "Sign in to Chief OS" : "Create Founder Account"}
             </h1>
             <p className="text-xs text-neutral-500 font-normal">
               Autonomous AI Executive Assistant for Founder Vision & Operations
             </p>
+          </div>
+
+          {/* ─── Continue with Google (PRIMARY BUTTON) ─── */}
+          <button
+            type="button"
+            onClick={handleGoogleLogin}
+            disabled={isGoogleLoading}
+            className="w-full py-3 px-4 rounded-xl bg-white hover:bg-neutral-50 border-2 border-neutral-200 hover:border-neutral-300 text-black font-semibold text-sm flex items-center justify-center gap-3 transition-all duration-150 cursor-pointer shadow-sm disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            {isGoogleLoading ? (
+              <>
+                <div className="h-4 w-4 border-2 border-neutral-300 border-t-black rounded-full animate-spin" />
+                <span className="text-xs">Redirecting to Google...</span>
+              </>
+            ) : (
+              <>
+                <GoogleIcon size={20} />
+                <span>Continue with Google</span>
+              </>
+            )}
+          </button>
+
+          {/* Auth error from Google callback */}
+          {(error || authError) && (
+            <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs text-left flex items-start gap-2 font-medium">
+              <AlertCircle className="h-4 w-4 text-red-600 shrink-0 mt-0.5" />
+              <span>{error || authError}</span>
+            </div>
+          )}
+
+          {successMsg && (
+            <div className="p-3 rounded-xl bg-neutral-100 border border-neutral-300 text-black text-xs text-left flex items-start gap-2 font-bold">
+              <CheckCircle2 className="h-4 w-4 text-black shrink-0 mt-0.5" />
+              <span>{successMsg}</span>
+            </div>
+          )}
+
+          {/* OR divider */}
+          <div className="relative flex items-center gap-3">
+            <div className="flex-grow border-t border-neutral-200" />
+            <span className="text-[10px] font-mono uppercase text-neutral-400 whitespace-nowrap">
+              or sign in with email
+            </span>
+            <div className="flex-grow border-t border-neutral-200" />
           </div>
 
           {/* Mode Switcher */}
@@ -133,21 +200,7 @@ export function AuthScreen({ onLogin }: AuthScreenProps) {
             </button>
           </div>
 
-          {error && (
-            <div className="p-3 rounded-xl bg-neutral-100 border border-neutral-300 text-neutral-800 text-xs text-left flex items-start gap-2 font-medium">
-              <AlertCircle className="h-4 w-4 text-black shrink-0 mt-0.5" />
-              <span>{error}</span>
-            </div>
-          )}
-
-          {successMsg && (
-            <div className="p-3 rounded-xl bg-neutral-100 border border-neutral-300 text-black text-xs text-left flex items-start gap-2 font-bold">
-              <CheckCircle2 className="h-4 w-4 text-black shrink-0 mt-0.5" />
-              <span>{successMsg}</span>
-            </div>
-          )}
-
-          <form onSubmit={handleSubmit} className="space-y-3.5 text-left pt-1">
+          <form onSubmit={handleSubmit} className="space-y-3 text-left">
             {mode === "register" && (
               <>
                 <div>
@@ -166,7 +219,6 @@ export function AuthScreen({ onLogin }: AuthScreenProps) {
                     />
                   </div>
                 </div>
-
                 <div>
                   <label className="block text-[11px] font-mono uppercase text-neutral-600 mb-1.5 font-semibold">
                     Company Name
@@ -230,7 +282,7 @@ export function AuthScreen({ onLogin }: AuthScreenProps) {
             <button
               type="submit"
               disabled={isLoading}
-              className="w-full py-3 rounded-xl bg-black hover:bg-neutral-800 text-white font-bold text-xs flex items-center justify-center gap-2 transition-all duration-150 cursor-pointer shadow-sm disabled:opacity-50 mt-2"
+              className="w-full py-3 rounded-xl bg-black hover:bg-neutral-800 text-white font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer shadow-sm disabled:opacity-50 mt-1"
             >
               {isLoading ? (
                 <>
@@ -246,28 +298,14 @@ export function AuthScreen({ onLogin }: AuthScreenProps) {
             </button>
           </form>
 
-          <div className="relative flex py-2 items-center">
-            <div className="flex-grow border-t border-neutral-200"></div>
-            <span className="flex-shrink mx-3 text-[10px] font-mono uppercase text-neutral-400">or continue with</span>
-            <div className="flex-grow border-t border-neutral-200"></div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-2.5">
-            <button
-              type="button"
-              onClick={handleDemoAccess}
-              className="py-2.5 px-4 rounded-xl bg-neutral-50 hover:bg-neutral-100 border border-neutral-300 text-xs font-semibold text-black flex items-center justify-center gap-2 transition-colors cursor-pointer"
-            >
-              <span>Google SSO</span>
-            </button>
-            <button
-              type="button"
-              onClick={handleDemoAccess}
-              className="py-2.5 px-4 rounded-xl bg-neutral-50 hover:bg-neutral-100 border border-neutral-300 text-xs font-semibold text-black flex items-center justify-center gap-2 transition-colors cursor-pointer"
-            >
-              <span>Quick Demo Access</span>
-            </button>
-          </div>
+          {/* Quick Demo Access */}
+          <button
+            type="button"
+            onClick={handleDemoAccess}
+            className="w-full py-2.5 px-4 rounded-xl bg-neutral-50 hover:bg-neutral-100 border border-neutral-200 text-xs font-medium text-neutral-500 hover:text-black flex items-center justify-center gap-2 transition-colors cursor-pointer"
+          >
+            <span>Quick Demo Access (no credentials needed)</span>
+          </button>
         </div>
       </main>
 
