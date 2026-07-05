@@ -6,7 +6,7 @@ import {
   ArrowRight, Activity, Users, Zap, AlertTriangle, 
   Cpu, BarChart3, Clock, DollarSign, FileText, Check, RefreshCw, Send, Layers, ExternalLink
 } from "lucide-react";
-import { submitGoal } from "@/lib/api";
+import { submitGoal, fetchGoalStatus } from "@/lib/api";
 
 interface CommandCenterProps {
   onNavigate?: (tab: any) => void;
@@ -18,15 +18,16 @@ export function CommandCenter({ onNavigate }: CommandCenterProps = {}) {
   const [activeStep, setActiveStep] = useState(0);
   const [backendGoalId, setBackendGoalId] = useState<string | null>(null);
   const [generatedTasks, setGeneratedTasks] = useState<any[]>([]);
+  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
 
   const initialAgents = [
-    { id: "ceo", name: "CEO Agent", role: "Strategic Strategy & Board Alignment", status: "Waiting", progress: 0, action: "Idle; awaiting goal", eta: "--" },
-    { id: "fin", name: "Finance Agent", role: "QuickBooks & Burn Rate Audit", status: "Waiting", progress: 0, action: "Idle; awaiting ledger", eta: "--" },
-    { id: "ops", name: "Operations Agent", role: "Resource Allocation & Runway", status: "Waiting", progress: 0, action: "Idle; awaiting task", eta: "--" },
-    { id: "eml", name: "Email Agent", role: "Investor & VIP Inbox Triage", status: "Waiting", progress: 0, action: "Idle; awaiting trigger", eta: "--" },
-    { id: "cal", name: "Calendar Agent", role: "Board & Sprint Scheduling", status: "Waiting", progress: 0, action: "Idle; awaiting schedule", eta: "--" },
-    { id: "rsh", name: "Research Agent", role: "Market Intel & Competitor Scan", status: "Waiting", progress: 0, action: "Idle; awaiting topic", eta: "--" },
-    { id: "anl", name: "Analytics Agent", role: "Funnel Conversion & LTV Modeling", status: "Waiting", progress: 0, action: "Idle; awaiting dataset", eta: "--" },
+    { id: "fin", name: "Finance Agent", role: "Runway & Budget Auditing", status: "Waiting", progress: 0, action: "Idle; awaiting goal", eta: "--" },
+    { id: "eml", name: "Email Agent", role: "Term Sheet & Inbox Parsing", status: "Waiting", progress: 0, action: "Idle; awaiting goal", eta: "--" },
+    { id: "rsh", name: "Research Agent", role: "Market & Diligence Benchmarks", status: "Waiting", progress: 0, action: "Idle; awaiting goal", eta: "--" },
+    { id: "anl", name: "Analytics Agent", role: "CAC/LTV & Cohort Modeling", status: "Waiting", progress: 0, action: "Idle; awaiting goal", eta: "--" },
+    { id: "ops", name: "Operations Agent", role: "SOC2 & Vendor Compliance", status: "Waiting", progress: 0, action: "Idle; awaiting goal", eta: "--" },
+    { id: "ceo", name: "Executive AI (CEO)", role: "Board Briefings & Strategy", status: "Waiting", progress: 0, action: "Idle; awaiting goal", eta: "--" },
+    { id: "cal", name: "Calendar Agent", role: "Executive Schedule Sync", status: "Waiting", progress: 0, action: "Idle; awaiting goal", eta: "--" },
     { id: "doc", name: "Document Agent", role: "Term Sheet & MSA Generation", status: "Waiting", progress: 0, action: "Idle; awaiting draft", eta: "--" },
   ];
 
@@ -36,7 +37,7 @@ export function CommandCenter({ onNavigate }: CommandCenterProps = {}) {
   const generateDynamicPlan = (text: string) => {
     const lower = text.toLowerCase();
     
-    if (lower.includes("hire") || lower.includes("recruit") || lower.includes("engineer") || lower.includes("hr") || lower.includes("team")) {
+    if (lower.includes("hire") || lower.includes("recruit") || lower.includes("engineer") || lower.includes("headcount") || lower.includes("staffing")) {
       return {
         theme: "Engineering & Headcount Expansion",
         actions: {
@@ -53,6 +54,27 @@ export function CommandCenter({ onNavigate }: CommandCenterProps = {}) {
           { id: `gen-hire-${Date.now()}-1`, title: "Approve $1.1M Engineering Headcount Compensation Budget", department: "Finance", deadline: "Today, 5:00 PM", priority: "High", description: "Finance Agent confirmed current cash reserves ($3.42M ARR, 40.2 mo runway) can absorb 5 new engineering hires while keeping runway above 36 months.", impact: "Increases product delivery velocity by 40% for Q3 Series A roadmap." },
           { id: `gen-hire-${Date.now()}-2`, title: "Sign off on IP Assignment & NDA Contract Template for New Hires", department: "Legal", deadline: "Tomorrow", priority: "Critical", description: "Legal Agent generated updated California-compliant IP assignment clauses and zero-trust NDA agreements.", impact: "Ensures 100% proprietary ownership of AI models built by new team members." },
           { id: `gen-hire-${Date.now()}-3`, title: "Review Candidate Shortlist for Lead AI Architect Role", department: "HR & Ops", deadline: "Friday", priority: "High", description: "Email and Research agents triaged 45 applicants down to top 3 Tier-1 candidates with proven LLM deployment experience.", impact: "Accelerates technical leadership onboarding by 3 weeks." },
+        ]
+      };
+    }
+
+    if (lower.includes("calendar") || lower.includes("schedule") || lower.includes("sync") || lower.includes("meeting") || lower.includes("align") || lower.includes("review")) {
+      return {
+        theme: "Executive Calendar & Cadence Alignment",
+        actions: {
+          fin: "Audited executive meeting time-cost ($4,200/wk in leadership hours)",
+          eml: "Sent agenda invitations and pre-read materials to department heads",
+          rsh: "Gathered key weekly pipeline metrics and KPI blockers for discussion",
+          anl: "Analyzed sales funnel conversion rates (+12% WoW) for review sync",
+          ops: "Reserved virtual conference rooms and verified Zoom AI note-taker",
+          ceo: "Synthesized executive briefing agenda and strategic discussion topics",
+          doc: "Prepared weekly growth ledger and automated action-item tracking doc",
+          cal: "Optimized 5 executive schedules to find conflict-free 60-min window",
+        },
+        tasks: [
+          { id: `gen-cal-${Date.now()}-1`, title: "Confirm Conflict-Free Weekly Growth Pipeline Cadence", department: "Executive", deadline: "Today, 3:00 PM", priority: "High", description: "Calendar Agent scanned all 5 C-level calendars and resolved 3 overlapping meeting conflicts to secure recurring Tuesdays at 10:00 AM EST.", impact: "Guarantees 100% executive attendance without disrupting deep-work engineering blocks." },
+          { id: `gen-cal-${Date.now()}-2`, title: "Approve Automated Pre-Read & Agenda Distribution", department: "Ops & Email", deadline: "Tomorrow", priority: "Medium", description: "Email and Document agents prepared standard KPI dashboards and pre-read memos to be dispatched 24 hours prior to each sync.", impact: "Reduces live meeting duration by 20 minutes through asynchronous pre-reading." },
+          { id: `gen-cal-${Date.now()}-3`, title: "Sign off on Zoom AI Note-Taker & Action Item Integration", department: "Ops", deadline: "Friday", priority: "High", description: "Operations Agent configured automatic transcript summarization and task routing into Chief OS after each meeting.", impact: "Ensures zero accountability slippage on growth decisions made during the sync." },
         ]
       };
     }
@@ -126,19 +148,21 @@ export function CommandCenter({ onNavigate }: CommandCenterProps = {}) {
     if (!prompt.trim()) setPrompt(targetPrompt);
     
     // Submit goal to backend API in background
+    let activeGoalId = "";
     try {
       const res = await submitGoal(targetPrompt);
       if (res && (res.goal_id || res.id)) {
-        setBackendGoalId(res.goal_id || res.id);
+        activeGoalId = res.goal_id || res.id;
+        setBackendGoalId(activeGoalId);
       }
     } catch (err) {
       console.warn("Orchestrator backend API fallback mode:", err);
     }
 
-    startOrchestration(targetPrompt);
+    startOrchestration(targetPrompt, activeGoalId);
   };
 
-  const startOrchestration = (targetPrompt: string) => {
+  const startOrchestration = (targetPrompt: string, goalId?: string) => {
     setIsOrchestrating(true);
     setActiveStep(1);
     const plan = generateDynamicPlan(targetPrompt);
@@ -147,6 +171,23 @@ export function CommandCenter({ onNavigate }: CommandCenterProps = {}) {
     setAgents(initialAgents.map(a => ({ ...a, status: "Waiting", progress: 0, action: "Queued for execution", eta: "4s" })));
 
     const timers: NodeJS.Timeout[] = [];
+
+    if (goalId) {
+      const pollInterval = setInterval(async () => {
+        try {
+          const statusRes = await fetchGoalStatus(goalId);
+          if (statusRes && statusRes.tasks && statusRes.tasks.length > 0) {
+            setGeneratedTasks(statusRes.tasks);
+          }
+          if (statusRes && (statusRes.status === "delivered" || statusRes.status === "synthesizing" || statusRes.status === "DELIVERED" || statusRes.status === "SYNTHESIZING" || statusRes.status === "failed" || statusRes.status === "FAILED")) {
+            clearInterval(pollInterval);
+          }
+        } catch (e) {
+          // ignore polling errors in fallback mode
+        }
+      }, 1500);
+      timers.push(pollInterval as any);
+    }
 
     timers.push(setTimeout(() => {
       setAgents(prev => prev.map(a => a.id === "fin" ? { ...a, status: "Completed", progress: 100, action: plan.actions.fin, eta: "0s" } : a));

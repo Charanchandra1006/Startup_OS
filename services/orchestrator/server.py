@@ -151,9 +151,8 @@ async def run_orchestrator(goal_id: str, request_data: GoalRequest, tenant_id: s
     except Exception as e:
         logger.error(f"Orchestrator failed for {goal_id}: {e}", exc_info=True)
     finally:
-        # Cleanup
-        if goal_id in active_orchestrators:
-            del active_orchestrators[goal_id]
+        # Preserve in active_orchestrators so UI can fetch completed tasks and reports
+        logger.info(f"Orchestration session {goal_id} preserved for UI retrieval")
 
 def get_tenant_id(request: Request) -> str:
     # In a real microservices architecture, the API Gateway passes the verified tenant ID
@@ -199,10 +198,23 @@ async def get_goal_status(goal_id: str, request: Request):
     # Check memory first
     if goal_id in active_orchestrators:
         orch = active_orchestrators[goal_id]
+        goal = orch._goals.get(goal_id)
+        tasks_list = []
+        if goal and goal.tasks:
+            for t in goal.tasks:
+                tasks_list.append({
+                    "id": t.id,
+                    "title": t.description[:70] + "..." if len(t.description) > 70 else t.description,
+                    "department": t.assigned_agent.replace("AGT-", "") if hasattr(t, "assigned_agent") else "AI",
+                    "priority": "High",
+                    "description": t.description if hasattr(t, "description") else str(t),
+                    "impact": "Generated autonomously by LLM Task Decomposer."
+                })
         return {
             "id": goal_id,
-            "status": orch.state.value,
-            "report": orch.final_report.dict() if orch.final_report else None
+            "status": goal.status.value if goal else (orch.state.value if hasattr(orch.state, "value") else str(orch.state)),
+            "report": goal.synthesized_report if goal else (orch.final_report.dict() if orch.final_report and hasattr(orch.final_report, "dict") else None),
+            "tasks": tasks_list
         }
         
     # Check DB
@@ -214,7 +226,8 @@ async def get_goal_status(goal_id: str, request: Request):
                     "id": goal_id,
                     "status": row["status"],
                     "raw_text": row["raw_text"],
-                    "report": None # Will need a separate reports table or JSON col
+                    "report": None,
+                    "tasks": []
                 }
                 
     raise HTTPException(status_code=404, detail="Goal not found")
