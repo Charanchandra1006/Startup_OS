@@ -152,6 +152,44 @@ def validate_grounding(output: AgentOutput) -> GroundingValidationResult:
         })
         return result
 
+    # Sanity check: logical consistency between derived metrics (runway) and raw figures (revenue vs burn)
+    has_positive_cash_flow = False
+    rev_val = 0.0
+    exp_val = 0.0
+    for entry in output.supporting_data:
+        sref = str(entry.source_ref).lower()
+        val_str = str(entry.value).replace(",", "")
+        try:
+            val_num = float(val_str)
+            if "rev" in sref and val_num > rev_val:
+                rev_val = val_num
+            elif ("exp" in sref or "burn" in sref) and val_num > exp_val:
+                exp_val = val_num
+        except ValueError:
+            if "positive net cash flow" in val_str.lower() or "n/a" in val_str.lower():
+                has_positive_cash_flow = True
+
+    if rev_val > exp_val and exp_val > 0:
+        has_positive_cash_flow = True
+    elif "positive net cash flow" in output.answer.lower() or "net cash inflow" in output.answer.lower():
+        has_positive_cash_flow = True
+
+    if has_positive_cash_flow:
+        for line in output.answer.splitlines():
+            if "runway" in line.lower():
+                if not any(w in line.lower() for w in ["n/a", "infinite", "not applicable", "positive", "accumulat", "no liquidity concern", "unlimited"]):
+                    nums_in_line = re.findall(r'\b(\d+(?:\.\d+)?)\b', line)
+                    for num_str in nums_in_line:
+                        try:
+                            num = float(num_str)
+                            if 1 <= num <= 500:
+                                result.is_valid = False
+                                err_msg = f"Logical Consistency Contradiction: Output claims finite runway of {num} months on line '{line.strip()}', but net cash flow is positive (revenue > burn). When net cash flow is positive, runway is infinite/N/A."
+                                if err_msg not in result.errors:
+                                    result.errors.append(err_msg)
+                        except ValueError:
+                            pass
+
     # Validate each claim against supporting_data
     ungrounded_claims = []
     for claim in claims:

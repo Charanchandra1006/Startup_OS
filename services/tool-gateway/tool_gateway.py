@@ -223,8 +223,38 @@ class IntegrationAdapter:
                     {"id": "txn_001", "amount": -12500.00, "category": "payroll", "date": "2024-11-01"},
                     {"id": "txn_002", "amount": -3200.00, "category": "cloud_infra", "date": "2024-11-05"},
                     {"id": "txn_003", "amount": 45000.00, "category": "revenue", "date": "2024-11-15"},
+                    {"id": "txn_004", "amount": 42000.00, "category": "saas_revenue_new", "date": "2024-04-15"},
+                    {"id": "txn_005", "amount": -18000.00, "category": "operational_expenditure", "date": "2024-04-30"},
+                    {"id": "txn_006", "amount": 46000.00, "category": "saas_revenue_renewal", "date": "2024-05-15"},
+                    {"id": "txn_007", "amount": -19500.00, "category": "operational_expenditure", "date": "2024-05-31"},
+                    {"id": "txn_008", "amount": 51000.00, "category": "saas_revenue_upsell", "date": "2024-06-15"},
+                    {"id": "txn_009", "amount": -21000.00, "category": "operational_expenditure", "date": "2024-06-30"},
                 ],
                 "summary": {"monthly_burn": 50000, "runway_months": 12},
+            }
+        elif self.provider == "mock_calendar":
+            return {
+                "executives": [
+                    {"name": "Charan Chandra (Founder/CEO)", "email": "charan@visionai.com", "timezone": "EST"},
+                    {"name": "Sarah Jenkins (CFO)", "email": "cfo@visionai.com", "timezone": "EST"},
+                    {"name": "David Wu (CTO)", "email": "cto@visionai.com", "timezone": "PST"},
+                    {"name": "Elena Rostova (VP Growth)", "email": "growth@visionai.com", "timezone": "EST"},
+                ],
+                "existing_events": [
+                    {"id": "evt_1", "title": "Weekly Growth Pipeline Review", "attendees": ["charan@visionai.com", "growth@visionai.com", "cfo@visionai.com"], "current_slot": "Thursdays 2:00 PM EST", "status": "frequent_conflicts_noted"},
+                    {"id": "evt_2", "title": "Engineering Sprint Planning", "attendees": ["cto@visionai.com", "charan@visionai.com"], "slot": "Mondays 11:00 AM EST"},
+                ],
+                "proposed_slots": [
+                    {"slot": "Tuesdays 10:00 AM EST", "conflicts": "None - All executives free"},
+                    {"slot": "Wednesdays 1:00 PM EST", "conflicts": "None - All executives free"},
+                ]
+            }
+        elif self.provider == "mock_email":
+            return {
+                "recent_emails": [
+                    {"from": "growth@visionai.com", "subject": "Growth Review conflict", "body": "Thursday 2pm conflicts with our client demos. Can we move the Weekly Growth Pipeline Review to Tuesdays at 10 AM EST?"},
+                    {"from": "cfo@visionai.com", "subject": "Re: Growth Review", "body": "Tuesday 10 AM EST works great for my calendar as well."},
+                ]
             }
         return {"data": [], "message": f"Mock response for {self.provider}/{operation}"}
 

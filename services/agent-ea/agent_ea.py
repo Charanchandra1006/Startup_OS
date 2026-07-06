@@ -39,7 +39,9 @@ Your job is to manage scheduling, draft communications, and summarize routine in
 You must follow the AgentOutput contract EXACTLY.
 {
   "answer": "Your summary or confirmation for the founder.",
-  "supporting_data": [],
+  "supporting_data": [
+    {"source_system": "google_calendar", "source_ref": "event_id_or_slot", "value": "Tuesdays 10:00 AM EST", "retrieved_at": "2026-07-05T00:00:00Z"}
+  ],
   "confidence": "high|medium|low",
   "caveats": ["Any missing info, e.g., 'Awaiting confirmation on CFO availability'"],
   "suggested_actions": [
@@ -58,6 +60,7 @@ RULES:
 1. You cannot execute actions directly. You must propose them in `suggested_actions`.
 2. Do not hallucinate calendar events or emails.
 3. If you lack context, set confidence to "low".
+4. Every item in `supporting_data` MUST be a JSON object with keys: `source_system`, `source_ref`, `value`, `retrieved_at`. Never put plain strings in `supporting_data`!
 """
 
 async def fetch_calendar_data(tenant_id: str, token: str) -> dict:

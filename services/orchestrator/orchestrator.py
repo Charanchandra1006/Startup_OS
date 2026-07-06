@@ -359,9 +359,36 @@ class Synthesizer:
             for agent_id, out in outputs.items()
         }, indent=2)
 
+        type_str = goal.classified_type.value if goal.classified_type and hasattr(goal.classified_type, "value") else str(goal.classified_type)
+        
+        if type_str in ["reporting", "monitoring", "forecasting"] or any("FIN" in str(k) or "ANL" in str(k) or "burn" in str(v.answer).lower() for k, v in outputs.items()):
+            schema_instructions = """
+            Format your synthesized_answer as a professional FINANCIAL & OPERATIONAL BRIEFING using clear Markdown:
+            - **Executive Summary**: High-level synthesis of the numbers and trends.
+            - **KPI Metrics Table**: A clean Markdown table comparing critical metrics (e.g. Revenue, Burn Rate, Net Cash Outflow, Runway Months). CRITICAL: If Net Cash Flow is positive (Revenue > Burn), Runway Months MUST be stated as "N/A (Positive Cash Flow)" or "Infinite", NOT a finite number of months!
+            - **Detailed Financial Findings**: Breakdown by category/month based strictly on agent data.
+            - **Strategic Risk Assessment**: Evaluation of burn vs. revenue and runway implications.
+            """
+        elif type_str in ["action_request", "composite"] or any("EA" in str(k) or "calendar" in str(v.answer).lower() or "schedule" in str(v.answer).lower() for k, v in outputs.items()):
+            schema_instructions = """
+            Format your synthesized_answer as an EXECUTIVE SCHEDULING & ACTION PLAN using clear Markdown:
+            - **Coordination Summary**: High-level status of calendar and team alignment.
+            - **Attendee Availability Matrix**: A clean Markdown table showing key executives, timezones, and existing conflicts/preferences.
+            - **Proposed Meeting Slots**: 2-3 optimal time slots ranked by least conflict and consistency.
+            - **Next Steps for Founder**: Clear action items required to finalize the schedule.
+            """
+        else:
+            schema_instructions = """
+            Format your synthesized_answer as a structured EXECUTIVE BRIEFING using clear Markdown:
+            - **Executive Summary**: Overview of findings and answers.
+            - **Key Insights Table**: A structured Markdown table synthesizing the most important data points.
+            - **Detailed Analysis**: Comprehensive breakdown of agent reports.
+            - **Recommended Next Steps**: Concrete actions for executive decision-making.
+            """
+
         prompt = f"""
         Synthesize the following agent outputs into a single cohesive executive report for a startup founder.
-        
+        Goal Classification: {type_str}
         Original Goal: "{goal.raw_text}"
         
         Agent Outputs:
@@ -370,9 +397,13 @@ class Synthesizer:
         Conflicts Detected:
         {json.dumps(conflicts, indent=2) if conflicts else "None"}
         
+        {schema_instructions}
+        
+        CRITICAL RULE: Rely strictly on the numbers, facts, and citations provided in the Agent Outputs. Do not hallucinate or make up metrics.
+        
         Return ONLY valid JSON in this exact schema:
         {{
-            "synthesized_answer": "<markdown formatted executive summary and synthesis>"
+            "synthesized_answer": "<markdown formatted executive summary and synthesis conforming to the schema instructions above>"
         }}
         """
         
@@ -540,15 +571,35 @@ class Orchestrator:
                             output = dispatch_result.completed[task.id]
                             # Validate grounding before accepting output
                             grounding_result = validate_grounding(output)
-                            if grounding_result.validated_output:
-                                goal.agent_outputs[task.id] = grounding_result.validated_output
-                            task.output = grounding_result.validated_output
-                            task.status = TaskStatus.COMPLETED
-                            span.add_event("task_completed", {
-                                "task_id": task.id,
-                                "agent": task.assigned_agent,
-                                "grounding_valid": grounding_result.is_valid,
-                            })
+                            if not grounding_result.is_valid:
+                                logger.warning(f"Task {task.id} failed grounding ({grounding_result.errors}). Retrying once...")
+                                orig_desc = task.description
+                                task.description += f"\n\nCRITICAL RETRY: Your previous response failed grounding validation: {grounding_result.errors}. You MUST cite exact supporting_data record IDs for all numbers, or tag them with source_system='agent_inference'."
+                                try:
+                                    retry_res = await self._agent_dispatch_fn(task)
+                                    if retry_res:
+                                        grounding_result = validate_grounding(retry_res)
+                                except Exception as e:
+                                    logger.error(f"Retry failed for task {task.id}: {e}")
+                                finally:
+                                    task.description = orig_desc
+                                    
+                            if not grounding_result.is_valid:
+                                # Fail loud! Do not accept stripped/broken text!
+                                task.status = TaskStatus.FAILED
+                                task.error = f"Grounding validation failed: {'; '.join(grounding_result.errors)}"
+                                logger.error(f"Task {task.id} FAILED loud due to ungrounded claims: {task.error}")
+                                span.add_event("task_failed_grounding", {"task_id": task.id, "error": task.error})
+                            else:
+                                if grounding_result.validated_output:
+                                    goal.agent_outputs[task.id] = grounding_result.validated_output
+                                task.output = grounding_result.validated_output
+                                task.status = TaskStatus.COMPLETED
+                                span.add_event("task_completed", {
+                                    "task_id": task.id,
+                                    "agent": task.assigned_agent,
+                                    "grounding_valid": True,
+                                })
                         else:
                             task.status = TaskStatus.FAILED
                             task.error = dispatch_result.failed.get(task.id, "Unknown error")
@@ -609,7 +660,8 @@ class Orchestrator:
                     self.state = goal.status
                     self._update_db_status_sync(goal)
                     
-                    goal.error = "All specialist tasks failed"
+                    task_errors = [t.error for t in goal.tasks if hasattr(t, "error") and t.error]
+                    goal.error = f"Analysis failed: {'; '.join(task_errors)}" if task_errors else "All specialist tasks failed"
                     return {
                         "status": "failed",
                         "goal_id": goal.id,
@@ -643,7 +695,15 @@ class Orchestrator:
     async def _do_update_db(self, goal):
         try:
             async with self.db_pool.acquire() as conn:
-                await conn.execute("UPDATE goals SET status = $1 WHERE id = $2", goal.status.value, uuid.UUID(goal.id))
+                type_val = goal.classified_type.value if goal.classified_type and hasattr(goal.classified_type, "value") else str(goal.classified_type) if goal.classified_type else None
+                await conn.execute(
+                    """
+                    UPDATE goals 
+                    SET status = $1, classified_type = $2::goal_type, classification_confidence = $3, updated_at = NOW() 
+                    WHERE id = $4
+                    """, 
+                    goal.status.value, type_val, goal.classification_confidence, uuid.UUID(goal.id)
+                )
         except Exception as e:
             logger.error(f"Failed to update goal {goal.id} status in DB: {e}")
 

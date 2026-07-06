@@ -73,17 +73,23 @@ export async function fetchApprovals() {
 }
 
 export async function submitGoal(task_description: string) {
-  return apiFetch("/goals", {
+  console.log(`[API_BOUNDARY_DIAGNOSTIC] FRONTEND -> POST /goals: "${task_description}"`);
+  const res = await apiFetch("/goals", {
     method: "POST",
     body: JSON.stringify({
       task_description,
       context: {}
     })
   });
+  console.log(`[API_BOUNDARY_DIAGNOSTIC] FRONTEND <- POST /goals result:`, res);
+  return res;
 }
 
 export async function fetchGoalStatus(goalId: string) {
-  return apiFetch(`/goals/${goalId}`);
+  console.log(`[API_BOUNDARY_DIAGNOSTIC] FRONTEND -> GET /goals/${goalId}`);
+  const res = await apiFetch(`/goals/${goalId}`);
+  console.log(`[API_BOUNDARY_DIAGNOSTIC] FRONTEND <- GET /goals/${goalId} result:`, res);
+  return res;
 }
 
 export async function decideApproval(approvalId: string, decision: "approve" | "reject") {

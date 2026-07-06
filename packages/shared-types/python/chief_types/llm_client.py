@@ -84,6 +84,9 @@ class LLMClient:
         prompt_tokens = response.usage.prompt_tokens if response.usage else 0
         completion_tokens = response.usage.completion_tokens if response.usage else 0
         
+        logger.info(f"[LLM_CALL_SITE] Provider=openai Model={model_id}\n=== System Prompt ===\n{system_prompt}\n=== Injected Prompt ===\n{prompt}\n=== Raw Response ===\n{content}\n====================")
+        print(f"[LLM_CALL_SITE] Provider=openai Model={model_id}\n=== System Prompt ===\n{system_prompt}\n=== Injected Prompt ===\n{prompt}\n=== Raw Response ===\n{content}\n====================", flush=True)
+        
         return content, prompt_tokens, completion_tokens
 
     async def _call_gemini(self, model_id: str, prompt: str, system_prompt: str | None, max_tokens: int, temperature: float) -> tuple[str, int, int]:
@@ -111,5 +114,8 @@ class LLMClient:
         # Approximate token count for Gemini as exact usage stats aren't always reliably returned in the basic SDK object
         prompt_tokens = model.count_tokens(prompt).total_tokens
         completion_tokens = model.count_tokens(content).total_tokens
+        
+        logger.info(f"[LLM_CALL_SITE] Provider=google Model={gemini_model_id}\n=== System Prompt ===\n{system_prompt}\n=== Injected Prompt ===\n{prompt}\n=== Raw Response ===\n{content}\n====================")
+        print(f"[LLM_CALL_SITE] Provider=google Model={gemini_model_id}\n=== System Prompt ===\n{system_prompt}\n=== Injected Prompt ===\n{prompt}\n=== Raw Response ===\n{content}\n====================", flush=True)
         
         return content, prompt_tokens, completion_tokens

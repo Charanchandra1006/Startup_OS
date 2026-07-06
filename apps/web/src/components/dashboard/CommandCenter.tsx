@@ -18,6 +18,7 @@ export function CommandCenter({ onNavigate }: CommandCenterProps = {}) {
   const [activeStep, setActiveStep] = useState(0);
   const [backendGoalId, setBackendGoalId] = useState<string | null>(null);
   const [generatedTasks, setGeneratedTasks] = useState<any[]>([]);
+  const [executiveReport, setExecutiveReport] = useState<any>(null);
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
 
   const initialAgents = [
@@ -176,17 +177,55 @@ export function CommandCenter({ onNavigate }: CommandCenterProps = {}) {
       const pollInterval = setInterval(async () => {
         try {
           const statusRes = await fetchGoalStatus(goalId);
-          if (statusRes && statusRes.tasks && statusRes.tasks.length > 0) {
+          if (!statusRes) return;
+
+          if (statusRes.tasks && statusRes.tasks.length > 0) {
             setGeneratedTasks(statusRes.tasks);
           }
-          if (statusRes && (statusRes.status === "delivered" || statusRes.status === "synthesizing" || statusRes.status === "DELIVERED" || statusRes.status === "SYNTHESIZING" || statusRes.status === "failed" || statusRes.status === "FAILED")) {
+          if (statusRes.report) {
+            setExecutiveReport(statusRes.report);
+          }
+
+          const st = (statusRes.status || "").toLowerCase();
+          if (st === "classifying") {
+            setActiveStep(1);
+          } else if (st === "decomposing") {
+            setActiveStep(2);
+            setAgents(prev => prev.map(a => a.id === "fin" || a.id === "cal" ? { ...a, status: "Running", progress: 50, action: "Decomposing instructions", eta: "2s" } : a));
+          } else if (st === "dispatching" || st === "awaiting_specialist_output") {
+            setActiveStep(4);
+            setAgents(prev => prev.map(a => ({
+              ...a,
+              status: "Running",
+              progress: 75,
+              action: `Executing specialist task (${statusRes.classified_type || "autonomous"})`,
+              eta: "1s"
+            })));
+          } else if (st === "synthesizing") {
+            setActiveStep(5);
+            setAgents(prev => prev.map(a => ({ ...a, status: "Completed", progress: 100, action: "Task execution complete", eta: "0s" })));
+          } else if (st === "delivered" || st === "failed" || st === "stalled") {
             clearInterval(pollInterval);
+            setActiveStep(6);
+            setIsOrchestrating(false);
+            setAgents(prev => prev.map(a => ({ ...a, status: "Completed", progress: 100, action: st === "delivered" ? "Report Delivered" : "Execution Finished", eta: "0s" })));
+            if (statusRes.tasks && statusRes.tasks.length > 0) {
+              try {
+                const existing = JSON.parse(localStorage.getItem("chief_generated_tasks") || "[]");
+                const merged = [...statusRes.tasks, ...existing];
+                localStorage.setItem("chief_generated_tasks", JSON.stringify(merged));
+                window.dispatchEvent(new Event("tasks_generated"));
+              } catch (err) {
+                console.error("Failed to save generated tasks to storage:", err);
+              }
+            }
           }
         } catch (e) {
-          // ignore polling errors in fallback mode
+          // ignore polling errors
         }
-      }, 1500);
+      }, 1000);
       timers.push(pollInterval as any);
+      return () => timers.forEach(t => clearInterval(t));
     }
 
     timers.push(setTimeout(() => {
@@ -251,6 +290,7 @@ export function CommandCenter({ onNavigate }: CommandCenterProps = {}) {
     setPrompt("");
     setBackendGoalId(null);
     setGeneratedTasks([]);
+    setExecutiveReport(null);
   };
 
   const activeOrchestrationAgents = agents.filter(a => a.status === "Running" || a.status === "Completed");
@@ -462,6 +502,31 @@ export function CommandCenter({ onNavigate }: CommandCenterProps = {}) {
                   </button>
                 </div>
               </div>
+
+              {executiveReport && executiveReport.synthesized_answer && (
+                <div className="p-5 rounded-xl bg-neutral-900 border border-neutral-800 space-y-3">
+                  <div className="flex items-center justify-between border-b border-neutral-800 pb-2">
+                    <span className="text-xs font-mono font-bold uppercase tracking-wider text-green-400 flex items-center gap-1.5">
+                      <Sparkles className="h-4 w-4 text-green-400" />
+                      <span>Live Synthesized Executive Briefing</span>
+                    </span>
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-neutral-800 text-neutral-300">
+                      Confidence: {executiveReport.overall_confidence || "High"}
+                    </span>
+                  </div>
+                  <div className="prose prose-invert prose-sm max-w-none text-xs text-neutral-200 whitespace-pre-wrap leading-relaxed font-sans">
+                    {executiveReport.synthesized_answer}
+                  </div>
+                  {executiveReport.caveats && executiveReport.caveats.length > 0 && (
+                    <div className="mt-3 pt-3 border-t border-neutral-800 text-[11px] text-amber-400/90 font-mono space-y-1">
+                      <div className="font-bold">Caveats &amp; Notes:</div>
+                      {executiveReport.caveats.map((c: string, idx: number) => (
+                        <div key={idx}>&bull; {c}</div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Generated Actionable Tasks Box */}
               <div className="space-y-3">

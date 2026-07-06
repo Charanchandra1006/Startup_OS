@@ -82,6 +82,39 @@ async def fetch_financial_data(tenant_id: str, token: str) -> dict:
         return res.json()
 
 
+def precompute_metrics(fin_data: dict) -> dict:
+    txns = fin_data.get("transactions", [])
+    total_rev = sum(t["amount"] for t in txns if t["amount"] > 0)
+    total_exp = sum(abs(t["amount"]) for t in txns if t["amount"] < 0)
+    
+    q2_txns = [t for t in txns if any(t.get("date", "").startswith(m) for m in ["2024-04", "2024-05", "2024-06"])]
+    q2_rev = sum(t["amount"] for t in q2_txns if t["amount"] > 0)
+    q2_exp = sum(abs(t["amount"]) for t in q2_txns if t["amount"] < 0)
+    q2_net_flow = q2_rev - q2_exp
+    total_net_flow = total_rev - total_exp
+    
+    # Check if net cash flow is positive for the relevant period (Q2 or overall)
+    # If revenue > expenditure, net cash flow is positive, so runway is NOT a finite number of months!
+    if q2_net_flow > 0 or total_net_flow > 0:
+        runway_val = "N/A (Positive Net Cash Flow / Cash Accumulating)"
+        cash_accum_rate = round(q2_net_flow / 3 if q2_txns else total_net_flow / max(1, len(txns)/3), 2)
+    else:
+        runway_val = str(fin_data.get("summary", {}).get("runway_months", 12))
+        cash_accum_rate = 0.0
+        
+    return {
+        "total_revenue": round(total_rev, 2),
+        "total_operational_expenditure": round(total_exp, 2),
+        "q2_saas_revenue": round(q2_rev, 2),
+        "q2_operational_expenditure": round(q2_exp, 2),
+        "q2_net_cash_flow": round(q2_net_flow, 2),
+        "q2_burn_rate": round(q2_exp, 2),
+        "monthly_cash_accumulation_rate": cash_accum_rate,
+        "monthly_burn_summary": fin_data.get("summary", {}).get("monthly_burn", 50000),
+        "runway_months": runway_val
+    }
+
+
 @app.post("/execute", response_model=AgentOutput)
 async def execute_task(payload: AgentInput):
     with tracer.start_span("agent_finance.execute") as span:
@@ -90,16 +123,25 @@ async def execute_task(payload: AgentInput):
 
         # 1. Fetch external data via Tool Gateway
         fin_data = await fetch_financial_data(str(payload.tenant_id), payload.scoped_data_access_token)
+        computed_math = precompute_metrics(fin_data)
         
         # 2. Construct LLM prompt
         user_prompt = f"""
 Goal Context: {payload.goal_context}
 Task: {payload.task_description}
 
-Financial Data:
+Raw Financial Data:
 {json.dumps(fin_data, indent=2)}
 
-Analyze the data and provide the requested information in the JSON structure.
+DETERMINISTIC PYTHON PRE-COMPUTED METRICS (Use these exact numbers! Do not recalculate!):
+{json.dumps(computed_math, indent=2)}
+
+CRITICAL RULES:
+1. You MUST use the pre-computed metrics above for all revenue, burn rate, and runway figures. Do NOT compute arithmetic yourself in free text.
+2. For EVERY number you state in your narrative `answer`, you MUST include a corresponding record in `supporting_data` where `value` matches that exact number (or tag source_system='agent_inference')!
+3. For example, if you mention Q2 SaaS revenue is 139000, you MUST include: {{"source_system": "quickbooks", "source_ref": "q2_saas_revenue", "value": "139000", "retrieved_at": "2024-06-30T00:00:00Z"}} in `supporting_data`.
+4. Without exact supporting_data citations for every number, grounding validation will fail!
+5. CRITICAL LOGIC RULE: If `runway_months` is "N/A (Positive Net Cash Flow / Cash Accumulating)", you MUST state that runway is Not Applicable (N/A) or Infinite due to positive cash flow. Do NOT state a finite number of months (like 12 months) for runway when net cash flow is positive!
 """
 
         # 3. Call LLM (Gemini Flash for reasoning)

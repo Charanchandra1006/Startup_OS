@@ -174,6 +174,9 @@ async def submit_goal(req: GoalRequest, request: Request, background_tasks: Back
     tenant_id = get_tenant_id(request)
     user_id = get_user_id(request)
     
+    logger.info(f"[API_BOUNDARY_DIAGNOSTIC] POST /goals id={req.id} text={req.task_description}")
+    print(f"[API_BOUNDARY_DIAGNOSTIC] POST /goals id={req.id} text={req.task_description}", flush=True)
+    
     # Store initial goal in DB if available
     if db_pool:
         async with db_pool.acquire() as conn:
@@ -210,23 +213,32 @@ async def get_goal_status(goal_id: str, request: Request):
                     "description": t.description if hasattr(t, "description") else str(t),
                     "impact": "Generated autonomously by LLM Task Decomposer."
                 })
+        status_val = goal.status.value if goal else (orch.state.value if hasattr(orch.state, "value") else str(orch.state))
+        report_val = goal.synthesized_report if goal else (orch.final_report.dict() if orch.final_report and hasattr(orch.final_report, "dict") else None)
+        type_val = goal.classified_type.value if goal and goal.classified_type and hasattr(goal.classified_type, "value") else str(goal.classified_type) if goal and goal.classified_type else None
+        logger.info(f"[API_BOUNDARY_DIAGNOSTIC] GET /goals/{goal_id} -> status={status_val} type={type_val} tasks={len(tasks_list)} report={report_val is not None}")
+        print(f"[API_BOUNDARY_DIAGNOSTIC] GET /goals/{goal_id} -> status={status_val} type={type_val} tasks={len(tasks_list)} report={report_val is not None}", flush=True)
         return {
             "id": goal_id,
-            "status": goal.status.value if goal else (orch.state.value if hasattr(orch.state, "value") else str(orch.state)),
-            "report": goal.synthesized_report if goal else (orch.final_report.dict() if orch.final_report and hasattr(orch.final_report, "dict") else None),
+            "status": status_val,
+            "classified_type": type_val,
+            "report": report_val,
+            "error": goal.error if goal and hasattr(goal, "error") and goal.error else ("Analysis failed during execution" if status_val == "failed" else None),
             "tasks": tasks_list
         }
         
     # Check DB
     if db_pool:
         async with db_pool.acquire() as conn:
-            row = await conn.fetchrow("SELECT status, raw_text FROM goals WHERE id = $1 AND tenant_id = $2", uuid.UUID(goal_id), uuid.UUID(tenant_id))
+            row = await conn.fetchrow("SELECT status, raw_text, classified_type FROM goals WHERE id = $1 AND tenant_id = $2", uuid.UUID(goal_id), uuid.UUID(tenant_id))
             if row:
                 return {
                     "id": goal_id,
                     "status": row["status"],
+                    "classified_type": row["classified_type"],
                     "raw_text": row["raw_text"],
                     "report": None,
+                    "error": "Analysis failed during execution" if row["status"] == "failed" else None,
                     "tasks": []
                 }
                 
