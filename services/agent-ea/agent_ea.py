@@ -63,41 +63,53 @@ RULES:
 4. Every item in `supporting_data` MUST be a JSON object with keys: `source_system`, `source_ref`, `value`, `retrieved_at`. Never put plain strings in `supporting_data`!
 """
 
-async def fetch_calendar_data(tenant_id: str, token: str) -> dict:
-    """Fetch calendar data from the Tool Gateway."""
-    async with httpx.AsyncClient() as client:
-        res = await client.post(
-            f"{TOOL_GATEWAY_URL}/tools/execute",
-            headers={"X-Access-Token": token},
-            json={
-                "action_type": "read_calendar",
-                "provider": "mock_calendar",
-                "operation": "list_events",
-                "params": {"tenant_id": tenant_id}
-            }
-        )
-        if res.status_code != 200:
-            logger.warning(f"Failed to fetch calendar data: {res.text}")
-            return {"error": "Could not retrieve calendar data"}
-        return res.json()
+async def fetch_calendar_data(tenant_id: str, scoped_token: str) -> dict[str, Any]:
+    """Fetch calendar data via Tool Gateway using real Google Calendar."""
+    url = f"{TOOL_GATEWAY_URL}/execute/read"
+    payload = {
+        "tenant_id": tenant_id,
+        "provider": "google",
+        "operation": "list_events",
+        "params": {"days": 7}
+    }
+    
+    headers = {"Authorization": f"Bearer {scoped_token}"}
+    
+    try:
+        async with httpx.AsyncClient() as client:
+            res = await client.post(url, json=payload, headers=headers, timeout=5.0)
+            if res.status_code == 200:
+                return res.json()
+            else:
+                logger.error(f"Tool Gateway error (calendar): {res.text}")
+                return {"error": f"Gateway returned {res.status_code}"}
+    except Exception as e:
+        logger.error(f"Failed to fetch calendar data: {e}")
+        return {"error": str(e)}
 
-async def fetch_email_data(tenant_id: str, token: str) -> dict:
-    """Fetch email data from the Tool Gateway."""
-    async with httpx.AsyncClient() as client:
-        res = await client.post(
-            f"{TOOL_GATEWAY_URL}/tools/execute",
-            headers={"X-Access-Token": token},
-            json={
-                "action_type": "read_emails",
-                "provider": "mock_email",
-                "operation": "list_emails",
-                "params": {"tenant_id": tenant_id}
-            }
-        )
-        if res.status_code != 200:
-            logger.warning(f"Failed to fetch email data: {res.text}")
-            return {"error": "Could not retrieve email data"}
-        return res.json()
+async def fetch_email_data(tenant_id: str, scoped_token: str) -> dict[str, Any]:
+    """Fetch email data via Tool Gateway using real Gmail."""
+    url = f"{TOOL_GATEWAY_URL}/execute/read"
+    payload = {
+        "tenant_id": tenant_id,
+        "provider": "google",
+        "operation": "list_emails",
+        "params": {"limit": 10}
+    }
+    
+    headers = {"Authorization": f"Bearer {scoped_token}"}
+    
+    try:
+        async with httpx.AsyncClient() as client:
+            res = await client.post(url, json=payload, headers=headers, timeout=5.0)
+            if res.status_code == 200:
+                return res.json()
+            else:
+                logger.error(f"Tool Gateway error (email): {res.text}")
+                return {"error": f"Gateway returned {res.status_code}"}
+    except Exception as e:
+        logger.error(f"Failed to fetch email data: {e}")
+        return {"error": str(e)}
 
 
 @app.post("/execute", response_model=AgentOutput)

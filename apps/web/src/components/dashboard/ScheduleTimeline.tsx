@@ -13,7 +13,7 @@ export function ScheduleTimeline() {
       title: "Executive Standup & Autonomous Agent Sync",
       type: "Internal",
       duration: "30 min",
-      attendees: ["Charan Chandra", "AI Orchestrator", "8 Dept Agents"],
+      attendees: ["Charan Chandra", "AI Orchestrator", "Dept Agents"],
       location: "Google Meet / Voice Command",
       status: "Completed",
       briefing: "AI CFO reported 12% revenue growth and 40.2 mo runway. Marketing Agent deployed Q3 growth campaigns.",

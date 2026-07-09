@@ -74,12 +74,18 @@ async def http_dispatch_fn(task: Task) -> AgentOutput:
     agent_urls = {
         "AGT-FIN": "http://agent-finance:8011/execute",
         "AGT-EA": "http://agent-ea:8012/execute",
+        "AGT-HIR": "http://agent-hiring:8013/execute",
+        "AGT-PM": "http://agent-project:8014/execute",
+        "AGT-LEG": "http://agent-legal:8015/execute",
     }
     
     # Map agent IDs to what integrations they need
     agent_integrations = {
-        "AGT-FIN": {"scopes": ["read:transactions", "read:accounts"], "integrations": ["mock_accounting"]},
-        "AGT-EA": {"scopes": ["read:calendar", "read:emails"], "integrations": ["mock_calendar", "mock_email"]},
+        "AGT-FIN": {"scopes": ["read:spreadsheet"], "integrations": ["google"]},
+        "AGT-EA": {"scopes": ["read:calendar", "read:emails"], "integrations": ["google"]},
+        "AGT-HIR": {"scopes": ["read:spreadsheet"], "integrations": ["google"]},
+        "AGT-PM": {"scopes": ["read:issues", "read:pull_requests", "read:repos"], "integrations": ["github"]},
+        "AGT-LEG": {"scopes": ["read:drive", "read:documents"], "integrations": ["google"]},
     }
     
     if agent_id == "AGT-ECHO":

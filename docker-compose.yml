@@ -11,7 +11,7 @@ x-python-service: &python-service
   env_file:
     - .env
   command: >
-    bash -c "pip install fastapi uvicorn pydantic asyncpg python-dotenv httpx google-generativeai openai bcrypt pyjwt google-api-python-client google-auth && python $$SCRIPT_PATH"
+    bash -c "pip install fastapi uvicorn pydantic asyncpg python-dotenv httpx google-generativeai openai bcrypt pyjwt google-api-python-client google-auth python-docx && python $$SCRIPT_PATH"
 
 services:
   # 1. API Gateway (Node.js)
@@ -95,3 +95,33 @@ services:
       - TOOL_GATEWAY_URL=http://tool-gateway:8002
     ports:
       - "8062:8012"
+
+  # 8. Hiring Agent (Python)
+  agent-hiring:
+    <<: *python-service
+    environment:
+      - SCRIPT_PATH=services/agent-hiring/agent_hiring.py
+      - PYTHONPATH=/app:/app/packages/shared-types/python
+      - TOOL_GATEWAY_URL=http://tool-gateway:8002
+    ports:
+      - "8063:8013"
+
+  # 9. Project Management Agent (Python)
+  agent-project:
+    <<: *python-service
+    environment:
+      - SCRIPT_PATH=services/agent-project/agent_project.py
+      - PYTHONPATH=/app:/app/packages/shared-types/python
+      - TOOL_GATEWAY_URL=http://tool-gateway:8002
+    ports:
+      - "8064:8014"
+
+  # 10. Legal Agent (Python)
+  agent-legal:
+    <<: *python-service
+    environment:
+      - SCRIPT_PATH=services/agent-legal/agent_legal.py
+      - PYTHONPATH=/app:/app/packages/shared-types/python
+      - TOOL_GATEWAY_URL=http://tool-gateway:8002
+    ports:
+      - "8065:8015"

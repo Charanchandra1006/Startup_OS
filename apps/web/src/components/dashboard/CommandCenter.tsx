@@ -21,127 +21,7 @@ export function CommandCenter({ onNavigate }: CommandCenterProps = {}) {
   const [executiveReport, setExecutiveReport] = useState<any>(null);
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
 
-  const initialAgents = [
-    { id: "fin", name: "Finance Agent", role: "Runway & Budget Auditing", status: "Waiting", progress: 0, action: "Idle; awaiting goal", eta: "--" },
-    { id: "eml", name: "Email Agent", role: "Term Sheet & Inbox Parsing", status: "Waiting", progress: 0, action: "Idle; awaiting goal", eta: "--" },
-    { id: "rsh", name: "Research Agent", role: "Market & Diligence Benchmarks", status: "Waiting", progress: 0, action: "Idle; awaiting goal", eta: "--" },
-    { id: "anl", name: "Analytics Agent", role: "CAC/LTV & Cohort Modeling", status: "Waiting", progress: 0, action: "Idle; awaiting goal", eta: "--" },
-    { id: "ops", name: "Operations Agent", role: "SOC2 & Vendor Compliance", status: "Waiting", progress: 0, action: "Idle; awaiting goal", eta: "--" },
-    { id: "ceo", name: "Executive AI (CEO)", role: "Board Briefings & Strategy", status: "Waiting", progress: 0, action: "Idle; awaiting goal", eta: "--" },
-    { id: "cal", name: "Calendar Agent", role: "Executive Schedule Sync", status: "Waiting", progress: 0, action: "Idle; awaiting goal", eta: "--" },
-    { id: "doc", name: "Document Agent", role: "Term Sheet & MSA Generation", status: "Waiting", progress: 0, action: "Idle; awaiting draft", eta: "--" },
-  ];
-
-  const [agents, setAgents] = useState(initialAgents);
-
-  // Dynamic AI Task Generator Plan builder
-  const generateDynamicPlan = (text: string) => {
-    const lower = text.toLowerCase();
-    
-    if (lower.includes("hire") || lower.includes("recruit") || lower.includes("engineer") || lower.includes("headcount") || lower.includes("staffing")) {
-      return {
-        theme: "Engineering & Headcount Expansion",
-        actions: {
-          fin: "Allocated $1.1M annual compensation budget from engineering reserves",
-          eml: "Drafted personalized outreach to 15 Tier-1 engineering candidates",
-          rsh: "Benchmarked AI Engineer salaries ($180k-$220k base) across SF & NYC",
-          anl: "Modeled sprint velocity lift (+40%) against runway impact (-1.2 mo)",
-          ops: "Provisioned 5 MacBook M3 Max hardware orders and GCP dev licenses",
-          ceo: "Drafted headcount approval memo and hiring timeline for board",
-          doc: "Generated proprietary IP assignment & employment agreement contracts",
-          cal: "Scheduled 8 technical interview loops and debrief syncs",
-        },
-        tasks: [
-          { id: `gen-hire-${Date.now()}-1`, title: "Approve $1.1M Engineering Headcount Compensation Budget", department: "Finance", deadline: "Today, 5:00 PM", priority: "High", description: "Finance Agent confirmed current cash reserves ($3.42M ARR, 40.2 mo runway) can absorb 5 new engineering hires while keeping runway above 36 months.", impact: "Increases product delivery velocity by 40% for Q3 Series A roadmap." },
-          { id: `gen-hire-${Date.now()}-2`, title: "Sign off on IP Assignment & NDA Contract Template for New Hires", department: "Legal", deadline: "Tomorrow", priority: "Critical", description: "Legal Agent generated updated California-compliant IP assignment clauses and zero-trust NDA agreements.", impact: "Ensures 100% proprietary ownership of AI models built by new team members." },
-          { id: `gen-hire-${Date.now()}-3`, title: "Review Candidate Shortlist for Lead AI Architect Role", department: "HR & Ops", deadline: "Friday", priority: "High", description: "Email and Research agents triaged 45 applicants down to top 3 Tier-1 candidates with proven LLM deployment experience.", impact: "Accelerates technical leadership onboarding by 3 weeks." },
-        ]
-      };
-    }
-
-    if (lower.includes("calendar") || lower.includes("schedule") || lower.includes("sync") || lower.includes("meeting") || lower.includes("align") || lower.includes("review")) {
-      return {
-        theme: "Executive Calendar & Cadence Alignment",
-        actions: {
-          fin: "Audited executive meeting time-cost ($4,200/wk in leadership hours)",
-          eml: "Sent agenda invitations and pre-read materials to department heads",
-          rsh: "Gathered key weekly pipeline metrics and KPI blockers for discussion",
-          anl: "Analyzed sales funnel conversion rates (+12% WoW) for review sync",
-          ops: "Reserved virtual conference rooms and verified Zoom AI note-taker",
-          ceo: "Synthesized executive briefing agenda and strategic discussion topics",
-          doc: "Prepared weekly growth ledger and automated action-item tracking doc",
-          cal: "Optimized 5 executive schedules to find conflict-free 60-min window",
-        },
-        tasks: [
-          { id: `gen-cal-${Date.now()}-1`, title: "Confirm Conflict-Free Weekly Growth Pipeline Cadence", department: "Executive", deadline: "Today, 3:00 PM", priority: "High", description: "Calendar Agent scanned all 5 C-level calendars and resolved 3 overlapping meeting conflicts to secure recurring Tuesdays at 10:00 AM EST.", impact: "Guarantees 100% executive attendance without disrupting deep-work engineering blocks." },
-          { id: `gen-cal-${Date.now()}-2`, title: "Approve Automated Pre-Read & Agenda Distribution", department: "Ops & Email", deadline: "Tomorrow", priority: "Medium", description: "Email and Document agents prepared standard KPI dashboards and pre-read memos to be dispatched 24 hours prior to each sync.", impact: "Reduces live meeting duration by 20 minutes through asynchronous pre-reading." },
-          { id: `gen-cal-${Date.now()}-3`, title: "Sign off on Zoom AI Note-Taker & Action Item Integration", department: "Ops", deadline: "Friday", priority: "High", description: "Operations Agent configured automatic transcript summarization and task routing into Chief OS after each meeting.", impact: "Ensures zero accountability slippage on growth decisions made during the sync." },
-        ]
-      };
-    }
-
-    if (lower.includes("market") || lower.includes("campaign") || lower.includes("growth") || lower.includes("sales") || lower.includes("ad") || lower.includes("lead")) {
-      return {
-        theme: "Go-To-Market & Growth Acceleration",
-        actions: {
-          fin: "Reconciled $50,000 Q3 performance marketing budget allocation",
-          eml: "Drafted 4-touch personalized outbound sequences for 500 enterprise leads",
-          rsh: "Scanned competitor ad spend and B2B growth channels (LinkedIn/Dev)",
-          anl: "Projected $140 CAC with 4.2x LTV and 350 qualified enterprise signups",
-          ops: "Verified HubSpot CRM integration and lead scoring automation pipeline",
-          ceo: "Synthesizing GTM expansion strategy and board growth update",
-          doc: "Generated customer onboarding SLA definitions and privacy addendum",
-          cal: "Scheduled weekly growth pipeline reviews with sales leadership",
-        },
-        tasks: [
-          { id: `gen-mkt-${Date.now()}-1`, title: "Approve $50,000 Q3 Performance Ad Spend Allocation", department: "Growth", deadline: "Today, 5:00 PM", priority: "High", description: "Marketing Agent recommends deploying $50k across LinkedIn B2B and developer community sponsorships. Predicted CAC is $140.", impact: "Projected to generate ~350 qualified enterprise trial signups in 30 days." },
-          { id: `gen-mkt-${Date.now()}-2`, title: "Review & Approve Enterprise Outbound Drip Sequence", department: "Sales", deadline: "Tomorrow", priority: "Medium", description: "Email Agent drafted 4-touch high-converting outbound copy targeting VP Engineering and CTO personas.", impact: "Expected to open 25+ new mid-market pipeline conversations this quarter." },
-          { id: `gen-mkt-${Date.now()}-3`, title: "Sign off on New Customer Onboarding SLA Definitions", department: "Legal & Ops", deadline: "Friday", priority: "High", description: "Document Agent updated enterprise SLA guarantees to 99.9% uptime with 2-hour critical response time.", impact: "Removes procurement friction for six-figure enterprise deals." },
-        ]
-      };
-    }
-
-    if (lower.includes("term sheet") || lower.includes("investor") || lower.includes("series a") || lower.includes("valuation") || lower.includes("raise") || lower.includes("pitch")) {
-      return {
-        theme: "Series A Diligence & Term Sheet Execution",
-        actions: {
-          fin: "Reconciled $3.42M ARR and 40.2 mo runway metrics for data room",
-          eml: "Parsed Alpha Ventures term sheet emails and redline attachments",
-          rsh: "Benchmarked B2B SaaS Series A multiples (19.2x ARR confirmed)",
-          anl: "Modeled cohort retention (114% NRR) and CAC payoff (8.4 mos)",
-          ops: "Audited AWS/GCP compute spend and SOC2 compliance posture",
-          ceo: "Synthesized board briefing memo and investor deck presentation",
-          doc: "Drafted board governance redlines and valuation fallbacks",
-          cal: "Synced 4 investor diligence meetings on executive schedule",
-        },
-        tasks: [
-          { id: `gen-inv-${Date.now()}-1`, title: "Approve Redline Fallbacks for Alpha Ventures $65M Valuation Term Sheet", department: "Finance & Legal", deadline: "In 2 hours", priority: "Critical", description: "Alpha Ventures submitted a revised $12M Series A term sheet at a $65M pre-money valuation. Legal and Finance agents audited all governance clauses.", impact: "Secures 4 years of operating capital with standard founder pro-rata and board governance." },
-          { id: `gen-inv-${Date.now()}-2`, title: "Sign off on Q2 Audited GAAP Financial Statements for Data Room", department: "Finance", deadline: "Tomorrow", priority: "High", description: "Finance Agent finalized GAAP revenue recognition schedules and deferred revenue accounts.", impact: "Completes financial due diligence checklist for Alpha Ventures deal team." },
-          { id: `gen-inv-${Date.now()}-3`, title: "Confirm Board Meeting Schedule for Series A Final Vote", department: "Board", deadline: "Friday", priority: "High", description: "Calendar Agent aligned availability for all 5 board members for a 45-minute virtual sign-off call.", impact: "Enables formal closing and wire transfer by end of month." },
-        ]
-      };
-    }
-
-    // Default / Custom Goal Task Generator
-    return {
-      theme: "Autonomous Strategic Goal Execution",
-      actions: {
-        fin: `Auditing budget allocation and financial efficiency for: ${text.slice(0, 30)}`,
-        eml: `Scanning stakeholder correspondence and notifications for key requirements`,
-        rsh: `Gathering market benchmarks and industry best practices for execution`,
-        anl: `Modeling operational impact and KPI projections (+15% efficiency lift)`,
-        ops: `Checking system capacity, infrastructure resources, and security rules`,
-        ceo: `Synthesizing executive action plan and dispatching instructions`,
-        doc: `Generating project roadmap, compliance checklist, and brief document`,
-        cal: `Scheduling milestone review syncs with department heads`,
-      },
-      tasks: [
-        { id: `gen-custom-${Date.now()}-1`, title: `Approve Strategic Action Plan: ${text.slice(0, 38)}...`, department: "Executive", deadline: "Today, 5:00 PM", priority: "High", description: `AI CEO and Operations agents formulated an end-to-end execution roadmap with clear departmental milestones and resource budgets for: "${text}".`, impact: "Ensures aligned, rapid execution across all 8 autonomous agent teams without bottlenecking founder." },
-        { id: `gen-custom-${Date.now()}-2`, title: "Review Budget & Resource Allocation for Executed Goal", department: "Finance & Ops", deadline: "Tomorrow", priority: "Medium", description: "Finance Agent verified that required spend falls within approved quarterly operating parameters.", impact: "Maintains runway stability while funding priority strategic initiative." },
-        { id: `gen-custom-${Date.now()}-3`, title: "Sign off on Compliance & Documentation Package", department: "Legal & Doc", deadline: "Friday", priority: "High", description: "Document Agent generated all necessary internal memos, standard operating procedures, and audit logs.", impact: "Provides complete verifiable audit trail for company governance." },
-      ]
-    };
-  };
+  const [agents, setAgents] = useState<any[]>([]);
 
   const handleCommandSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -166,10 +46,9 @@ export function CommandCenter({ onNavigate }: CommandCenterProps = {}) {
   const startOrchestration = (targetPrompt: string, goalId?: string) => {
     setIsOrchestrating(true);
     setActiveStep(1);
-    const plan = generateDynamicPlan(targetPrompt);
-    setGeneratedTasks(plan.tasks);
-
-    setAgents(initialAgents.map(a => ({ ...a, status: "Waiting", progress: 0, action: "Queued for execution", eta: "4s" })));
+    setGeneratedTasks([]);
+    setExecutiveReport(null);
+    setAgents([]);
 
     const timers: NodeJS.Timeout[] = [];
 
@@ -181,7 +60,26 @@ export function CommandCenter({ onNavigate }: CommandCenterProps = {}) {
 
           if (statusRes.tasks && statusRes.tasks.length > 0) {
             setGeneratedTasks(statusRes.tasks);
+            
+            // Map the tasks to active agents
+            const agentMap = new Map();
+            statusRes.tasks.forEach((t: any) => {
+                const dept = t.department || "AI";
+                if (!agentMap.has(dept)) {
+                    agentMap.set(dept, {
+                        id: dept,
+                        name: `${dept} Agent`,
+                        role: `Assigned: ${t.title.slice(0, 35)}...`,
+                        status: "Running",
+                        progress: 75,
+                        action: `Executing ${dept} responsibilities...`,
+                        eta: "1s"
+                    });
+                }
+            });
+            setAgents(Array.from(agentMap.values()));
           }
+
           if (statusRes.report) {
             setExecutiveReport(statusRes.report);
           }
@@ -191,24 +89,16 @@ export function CommandCenter({ onNavigate }: CommandCenterProps = {}) {
             setActiveStep(1);
           } else if (st === "decomposing") {
             setActiveStep(2);
-            setAgents(prev => prev.map(a => a.id === "fin" || a.id === "cal" ? { ...a, status: "Running", progress: 50, action: "Decomposing instructions", eta: "2s" } : a));
           } else if (st === "dispatching" || st === "awaiting_specialist_output") {
             setActiveStep(4);
-            setAgents(prev => prev.map(a => ({
-              ...a,
-              status: "Running",
-              progress: 75,
-              action: `Executing specialist task (${statusRes.classified_type || "autonomous"})`,
-              eta: "1s"
-            })));
           } else if (st === "synthesizing") {
             setActiveStep(5);
             setAgents(prev => prev.map(a => ({ ...a, status: "Completed", progress: 100, action: "Task execution complete", eta: "0s" })));
-          } else if (st === "delivered" || st === "failed" || st === "stalled") {
+          } else if (st === "delivered" || st === "failed" || st === "stalled" || st === "completed") {
             clearInterval(pollInterval);
             setActiveStep(6);
             setIsOrchestrating(false);
-            setAgents(prev => prev.map(a => ({ ...a, status: "Completed", progress: 100, action: st === "delivered" ? "Report Delivered" : "Execution Finished", eta: "0s" })));
+            setAgents(prev => prev.map(a => ({ ...a, status: "Completed", progress: 100, action: st === "failed" ? "Execution Failed" : "Execution Finished", eta: "0s" })));
             if (statusRes.tasks && statusRes.tasks.length > 0) {
               try {
                 const existing = JSON.parse(localStorage.getItem("chief_generated_tasks") || "[]");
@@ -227,66 +117,12 @@ export function CommandCenter({ onNavigate }: CommandCenterProps = {}) {
       timers.push(pollInterval as any);
       return () => timers.forEach(t => clearInterval(t));
     }
-
-    timers.push(setTimeout(() => {
-      setAgents(prev => prev.map(a => a.id === "fin" ? { ...a, status: "Completed", progress: 100, action: plan.actions.fin, eta: "0s" } : a));
-      setActiveStep(2);
-      setAgents(prev => prev.map(a => 
-        a.id === "eml" ? { ...a, status: "Running", progress: 50, action: plan.actions.eml, eta: "2s" } :
-        a.id === "rsh" ? { ...a, status: "Running", progress: 35, action: plan.actions.rsh, eta: "3s" } : a
-      ));
-    }, 1800));
-
-    timers.push(setTimeout(() => {
-      setAgents(prev => prev.map(a => 
-        a.id === "eml" ? { ...a, status: "Completed", progress: 100, action: plan.actions.eml, eta: "0s" } :
-        a.id === "rsh" ? { ...a, status: "Completed", progress: 100, action: plan.actions.rsh, eta: "0s" } :
-        a.id === "anl" ? { ...a, status: "Running", progress: 60, action: plan.actions.anl, eta: "2s" } :
-        a.id === "ops" ? { ...a, status: "Running", progress: 50, action: plan.actions.ops, eta: "2s" } : a
-      ));
-      setActiveStep(4);
-    }, 3600));
-
-    timers.push(setTimeout(() => {
-      setAgents(prev => prev.map(a => 
-        a.id === "anl" ? { ...a, status: "Completed", progress: 100, action: plan.actions.anl, eta: "0s" } :
-        a.id === "ops" ? { ...a, status: "Completed", progress: 100, action: plan.actions.ops, eta: "0s" } :
-        a.id === "ceo" ? { ...a, status: "Running", progress: 75, action: plan.actions.ceo, eta: "1s" } :
-        a.id === "doc" ? { ...a, status: "Running", progress: 65, action: plan.actions.doc, eta: "1s" } :
-        a.id === "cal" ? { ...a, status: "Completed", progress: 100, action: plan.actions.cal, eta: "0s" } : a
-      ));
-      setActiveStep(5);
-    }, 5400));
-
-    timers.push(setTimeout(() => {
-      setAgents(prev => prev.map(a => ({
-        ...a,
-        status: "Completed",
-        progress: 100,
-        action: plan.actions[a.id as keyof typeof plan.actions] || "Executed flawlessly; tasks generated",
-        eta: "0s"
-      })));
-      setActiveStep(6);
-      setIsOrchestrating(false);
-
-      // Save generated tasks to localStorage and dispatch custom event for Tasks board sync
-      try {
-        const existing = JSON.parse(localStorage.getItem("chief_generated_tasks") || "[]");
-        const merged = [...plan.tasks, ...existing];
-        localStorage.setItem("chief_generated_tasks", JSON.stringify(merged));
-        window.dispatchEvent(new Event("tasks_generated"));
-      } catch (err) {
-        console.error("Failed to save generated tasks to storage:", err);
-      }
-    }, 7200));
-
-    return () => timers.forEach(t => clearTimeout(t));
   };
 
   const resetCommand = () => {
     setIsOrchestrating(false);
     setActiveStep(0);
-    setAgents(initialAgents);
+    setAgents([]);
     setPrompt("");
     setBackendGoalId(null);
     setGeneratedTasks([]);
@@ -309,7 +145,7 @@ export function CommandCenter({ onNavigate }: CommandCenterProps = {}) {
                 AI Task Generator & Command Center
               </h3>
               <span className="px-2 py-0.5 rounded bg-neutral-100 text-neutral-800 border border-neutral-300 text-[10px] font-mono font-bold uppercase">
-                {isOrchestrating ? "ORCHESTRATING ACTIVE" : "8 AGENTS READY"}
+                {isOrchestrating ? "ORCHESTRATING ACTIVE" : "READY"}
               </span>
               {backendGoalId && (
                 <span className="px-2 py-0.5 rounded bg-black text-white text-[10px] font-mono font-bold uppercase">
@@ -399,7 +235,7 @@ export function CommandCenter({ onNavigate }: CommandCenterProps = {}) {
           <Layers className="h-6 w-6 text-neutral-400 mx-auto" />
           <h4 className="text-xs font-bold text-black">AI Task Generator Standby</h4>
           <p className="text-[11px] text-neutral-500 max-w-md mx-auto leading-relaxed">
-            When you dispatch a command above, the Orchestrator will activate all 8 departmental agents to decompose your goal into executable tasks and push them to your decision board.
+            When you dispatch a command above, the Orchestrator will activate the relevant departmental agents to decompose your goal into executable tasks and push them to your decision board.
           </p>
         </div>
       )}
@@ -412,7 +248,7 @@ export function CommandCenter({ onNavigate }: CommandCenterProps = {}) {
             <div className="flex items-center justify-between text-xs font-mono font-bold">
               <span className="flex items-center gap-2 text-black">
                 <Activity className={`h-4 w-4 ${isOrchestrating ? "animate-pulse" : ""}`} />
-                {activeStep === 6 ? "All 8 Agents Finished • Actionable Tasks Generated" : `AI Task Decomposer Active (Phase ${activeStep} of 5)`}
+                {activeStep === 6 ? "Agents Finished • Actionable Tasks Generated" : `AI Task Decomposer Active (Phase ${activeStep} of 5)`}
               </span>
               <span className="text-neutral-500">{activeStep === 6 ? "100%" : `${Math.round((activeStep / 5) * 100)}%`}% Complete</span>
             </div>
@@ -563,7 +399,7 @@ export function CommandCenter({ onNavigate }: CommandCenterProps = {}) {
               <div className="p-4 rounded-xl bg-neutral-900 border border-neutral-800 text-xs text-neutral-300 flex items-center justify-between gap-4 font-mono">
                 <div className="flex items-center gap-2">
                   <Sparkles className="h-4 w-4 text-white shrink-0" />
-                  <span>All 8 autonomous departments have synced their action items into your live workflow.</span>
+                  <span>The relevant autonomous departments have synced their action items into your live workflow.</span>
                 </div>
                 <button
                   onClick={() => onNavigate && onNavigate("tasks")}

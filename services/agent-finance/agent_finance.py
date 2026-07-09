@@ -62,57 +62,90 @@ RULES:
 3. If you lack sufficient data to answer, set `confidence` to "low" and state what is missing in `caveats`.
 """
 
-async def fetch_financial_data(tenant_id: str, token: str) -> dict:
-    """Fetch accounting data from the Tool Gateway."""
-    async with httpx.AsyncClient() as client:
-        # Requesting a summary report via Tool Gateway (mock_accounting for now)
-        res = await client.post(
-            f"{TOOL_GATEWAY_URL}/tools/execute",
-            headers={"X-Access-Token": token},
-            json={
-                "action_type": "read_transactions",
-                "provider": "mock_accounting",
-                "operation": "summary",
-                "params": {"tenant_id": tenant_id}
-            }
-        )
-        if res.status_code != 200:
-            logger.warning(f"Failed to fetch financial data: {res.text}")
-            return {"error": "Could not retrieve financial data"}
-        return res.json()
-
-
-def precompute_metrics(fin_data: dict) -> dict:
-    txns = fin_data.get("transactions", [])
-    total_rev = sum(t["amount"] for t in txns if t["amount"] > 0)
-    total_exp = sum(abs(t["amount"]) for t in txns if t["amount"] < 0)
+async def fetch_financial_data(tenant_id: str, scoped_token: str) -> dict[str, Any]:
+    """Fetch financial data from Google Sheets via Tool Gateway."""
+    url = f"{TOOL_GATEWAY_URL}/execute/read"
     
-    q2_txns = [t for t in txns if any(t.get("date", "").startswith(m) for m in ["2024-04", "2024-05", "2024-06"])]
-    q2_rev = sum(t["amount"] for t in q2_txns if t["amount"] > 0)
-    q2_exp = sum(abs(t["amount"]) for t in q2_txns if t["amount"] < 0)
-    q2_net_flow = q2_rev - q2_exp
-    total_net_flow = total_rev - total_exp
+    # We expect the finance spreadsheet ID to be set in environment variables
+    spreadsheet_id = os.environ.get("FINANCE_SPREADSHEET_ID")
     
-    # Check if net cash flow is positive for the relevant period (Q2 or overall)
-    # If revenue > expenditure, net cash flow is positive, so runway is NOT a finite number of months!
-    if q2_net_flow > 0 or total_net_flow > 0:
-        runway_val = "N/A (Positive Net Cash Flow / Cash Accumulating)"
-        cash_accum_rate = round(q2_net_flow / 3 if q2_txns else total_net_flow / max(1, len(txns)/3), 2)
-    else:
-        runway_val = str(fin_data.get("summary", {}).get("runway_months", 12))
-        cash_accum_rate = 0.0
-        
-    return {
-        "total_revenue": round(total_rev, 2),
-        "total_operational_expenditure": round(total_exp, 2),
-        "q2_saas_revenue": round(q2_rev, 2),
-        "q2_operational_expenditure": round(q2_exp, 2),
-        "q2_net_cash_flow": round(q2_net_flow, 2),
-        "q2_burn_rate": round(q2_exp, 2),
-        "monthly_cash_accumulation_rate": cash_accum_rate,
-        "monthly_burn_summary": fin_data.get("summary", {}).get("monthly_burn", 50000),
-        "runway_months": runway_val
+    if not spreadsheet_id:
+        logger.warning("FINANCE_SPREADSHEET_ID not set. Finance agent requires this ID to fetch data.")
+        return {"error": "FINANCE_SPREADSHEET_ID environment variable not set."}
+
+    payload = {
+        "tenant_id": tenant_id,
+        "provider": "google",
+        "operation": "read_spreadsheet",
+        "params": {
+            "spreadsheet_id": spreadsheet_id,
+            "range": "Sheet1"
+        }
     }
+    
+    headers = {"Authorization": f"Bearer {scoped_token}"}
+    
+    try:
+        async with httpx.AsyncClient() as client:
+            res = await client.post(url, json=payload, headers=headers, timeout=10.0)
+            if res.status_code == 200:
+                data = res.json()
+                if "data" in data and "rows" in data["data"]:
+                    # Rename "rows" to "transactions" to maintain compatibility with existing logic
+                    data["data"]["transactions"] = data["data"]["rows"]
+                return data
+            else:
+                logger.error(f"Tool Gateway error: {res.text}")
+                return {"error": f"Gateway returned {res.status_code}"}
+    except Exception as e:
+        logger.error(f"Failed to fetch financial data: {e}")
+        return {"error": str(e)}
+
+
+def precompute_metrics(financial_data: dict[str, Any]) -> dict[str, Any]:
+    """
+    Precompute critical financial metrics in Python to prevent LLM hallucination.
+    """
+    metrics = {
+        "total_revenue": 0.0,
+        "total_burn": 0.0,
+        "net_cash_flow": 0.0,
+        "runway_months": "N/A",
+        "current_cash_balance": 500000.0, # Assumed initial balance
+        "transaction_count": 0
+    }
+    
+    # Check if we got an error or invalid data
+    if "error" in financial_data or "data" not in financial_data:
+        return metrics
+        
+    transactions = financial_data["data"].get("transactions", [])
+    metrics["transaction_count"] = len(transactions)
+    
+    for txn in transactions:
+        try:
+            # Assuming Google Sheets returns strings, and "Amount" is the column name
+            amount_str = txn.get("Amount", "0").replace(",", "")
+            amount = float(amount_str) if amount_str else 0.0
+            
+            if amount > 0:
+                metrics["total_revenue"] += amount
+            else:
+                # Store burn as a positive number
+                metrics["total_burn"] += abs(amount)
+        except (ValueError, TypeError):
+            continue
+            
+    metrics["net_cash_flow"] = metrics["total_revenue"] - metrics["total_burn"]
+    
+    # Calculate runway
+    if metrics["net_cash_flow"] >= 0:
+        metrics["runway_months"] = "N/A (Positive Net Cash Flow / Cash Accumulating)"
+    elif metrics["total_burn"] > 0:
+        runway = metrics["current_cash_balance"] / metrics["total_burn"]
+        metrics["runway_months"] = f"{runway:.1f} months"
+        
+    return metrics
 
 
 @app.post("/execute", response_model=AgentOutput)

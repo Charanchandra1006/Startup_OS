@@ -110,7 +110,7 @@ export function Sidebar({ activeTab, setActiveTab, onLogout, founderName = "Char
           <div className="flex items-center gap-2">
             <div className="h-1.5 w-1.5 rounded-full bg-black animate-pulse shrink-0" />
             <div>
-              <div className="text-[11px] font-semibold text-black">7 Agents Active</div>
+              <div className="text-[11px] font-semibold text-black">Agents Active</div>
               <div className="text-[10px] text-neutral-500">Autonomous Mode</div>
             </div>
           </div>

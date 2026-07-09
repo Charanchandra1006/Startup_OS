@@ -470,14 +470,14 @@ class Orchestrator:
         self.router = ModelRouter()
         self.dispatcher = Dispatcher()
         
-        # Hardcoded registry for Phase 1
+        # We inject available agents and their capabilities
+        # In a real system, this would be dynamic via service discovery
         self.available_agents = {
             "AGT-FIN": "Finance Agent",
             "AGT-EA": "Executive Assistant Agent",
+            "AGT-HIR": "Hiring Agent",
             "AGT-PM": "Project Management Agent",
-            "AGT-SAL": "Sales Agent",
-            "AGT-CS": "Customer Success Agent",
-            "AGT-ANL": "Analytics Agent",
+            "AGT-LEG": "Legal Agent",
             "AGT-ECHO": "Echo Test Agent",
         }
         self._goals: dict[str, Goal] = {}

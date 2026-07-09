@@ -30,7 +30,9 @@ def reset():
 
 @pytest.fixture
 def gateway():
-    return ToolGateway()
+    gw = ToolGateway()
+    gw._register_mock_adapters()
+    return gw
 
 
 TENANT_ID = "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11"

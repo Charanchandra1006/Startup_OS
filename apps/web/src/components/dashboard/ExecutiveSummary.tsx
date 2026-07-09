@@ -45,7 +45,7 @@ export function ExecutiveSummary() {
                 AI GENERATED
               </span>
             </h3>
-            <p className="text-xs text-neutral-500">Synthesized from 8 autonomous department agents over the last 24 hours</p>
+            <p className="text-xs text-neutral-500">Synthesized from autonomous department agents over the last 24 hours</p>
           </div>
         </div>
 

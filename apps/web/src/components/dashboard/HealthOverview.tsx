@@ -94,7 +94,7 @@ export function HealthOverview() {
       change: "Optimal",
       isPositive: true,
       icon: Sparkles,
-      subtext: "all 8 agents synchronized",
+      subtext: "active agents synchronized",
       chart: [70, 75, 80, 85, 88, 90, 92],
     },
   ];

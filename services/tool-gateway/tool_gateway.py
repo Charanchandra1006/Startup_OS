@@ -90,7 +90,7 @@ class TokenManager:
         ttl_seconds: int | None = None,
     ) -> ScopedToken:
         """Issue a new scoped token for an agent's data access."""
-        ttl = ttl_seconds or self.DEFAULT_TTL_SECONDS
+        ttl = ttl_seconds if ttl_seconds is not None else self.DEFAULT_TTL_SECONDS
         now = datetime.now(timezone.utc)
         token_value = secrets.token_urlsafe(32)
 
@@ -274,15 +274,30 @@ class ToolGateway:
         self.token_manager = TokenManager()
         self._adapters: dict[str, IntegrationAdapter] = {}
         self.tracer = get_tracer("tool-gateway")
-        self._register_mock_adapters()
         
         # Register real adapters
+        adapters_loaded = False
         try:
             from packages.integrations.google import GoogleIntegrationAdapter
             from vault import vault
             self.register_adapter("google", GoogleIntegrationAdapter(vault))
+            adapters_loaded = True
         except ImportError as e:
             logger.warning(f"Could not load Google adapter: {e}")
+            
+        try:
+            from packages.integrations.github import GitHubIntegrationAdapter
+            github_pat = os.environ.get("GITHUB_PAT")
+            if github_pat:
+                self.register_adapter("github", GitHubIntegrationAdapter(github_pat))
+                adapters_loaded = True
+            else:
+                logger.warning("GITHUB_PAT not set, GitHub adapter disabled")
+        except ImportError as e:
+            logger.warning(f"Could not load GitHub adapter: {e}")
+            
+        if not adapters_loaded:
+            self._register_mock_adapters()
 
     def _register_mock_adapters(self):
         """Register mock adapters for Phase 0."""
