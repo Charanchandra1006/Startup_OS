@@ -105,7 +105,7 @@ def main():
     gaps = agent_actions - covered
     
     if gaps:
-        print(f"\n❌ COVERAGE GAP: {len(gaps)} action type(s) not in tier_classifier or denylist:")
+        print(f"\n[FAIL] COVERAGE GAP: {len(gaps)} action type(s) not in tier_classifier or denylist:")
         for gap in sorted(gaps):
             print(f"   - {gap}")
         print(
@@ -115,13 +115,13 @@ def main():
         )
         sys.exit(1)
     else:
-        print("\n✅ All agent action types are covered by tier_classifier or denylist.")
+        print("\n[PASS] All agent action types are covered by tier_classifier or denylist.")
         
         if agent_actions:
             print("\nCovered action types:")
             for at in sorted(agent_actions):
                 source = "classified" if at in classified else "denied"
-                print(f"   ✓ {at} ({source})")
+                print(f"   [OK] {at} ({source})")
         
         sys.exit(0)
 

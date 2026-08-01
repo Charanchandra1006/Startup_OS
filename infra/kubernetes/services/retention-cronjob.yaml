@@ -1,0 +1,56 @@
+# Chief AI Startup OS — Data Retention CronJob
+# Implements: STARTUP_OS_MASTER_BUILD_PLAN Part 5.3 / SPEC-GAPS SG-004
+#
+# Runs daily at 3:00 AM UTC. Purges:
+# - goal_events older than 90 days
+# - agent_runs (AI traces) older than 1 year
+# - completed/failed tasks older than 90 days
+# - dismissed insights older than 90 days
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: chief-data-retention
+  namespace: chief-system
+  labels:
+    app: chief-data-retention
+    tier: maintenance
+spec:
+  schedule: "0 3 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 600  # 10 minute timeout
+      template:
+        metadata:
+          labels:
+            app: chief-data-retention
+        spec:
+          restartPolicy: OnFailure
+          containers:
+          - name: retention-job
+            image: python:3.11-slim
+            command:
+            - python
+            - -c
+            - |
+              import sys
+              sys.path.append('/app/packages/shared-types/python')
+              import asyncio
+              from chief_types.retention import purge_expired_traces
+              result = asyncio.run(purge_expired_traces())
+              print(f"Retention job result: {result}")
+            volumeMounts:
+            - name: app-code
+              mountPath: /app
+            envFrom:
+            - configMapRef:
+                name: chief-config
+            - secretRef:
+                name: chief-secrets
+          volumes:
+          - name: app-code
+            emptyDir: {}
+            # In production: use an initContainer to pull code, or bake into a custom image

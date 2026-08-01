@@ -27,6 +27,13 @@ data:
   DOCUMENTS_DB_PORT: "5432"
   DOCUMENTS_DB_NAME: "chief_documents"
 
+  # Vault backend (Phase D — STARTUP_OS_MASTER_BUILD_PLAN Part 4)
+  # Options: "local" (dev), "aws" (production)
+  VAULT_BACKEND: "local"
+
+  # QuickBooks sandbox mode (Phase A — adapter config)
+  QUICKBOOKS_SANDBOX: "true"
+
   # Observability
   OTEL_EXPORTER_OTLP_ENDPOINT: "http://chief-otel-collector.chief-system.svc.cluster.local:4317"
   OTEL_SERVICE_NAME: "chief"
@@ -38,7 +45,10 @@ metadata:
   namespace: chief-system
 type: Opaque
 stringData:
-  # Base64 encoding is not required when using stringData
+  # ─── CRITICAL: In production, these MUST be rotated and sourced from
+  # an external secrets operator (e.g., AWS Secrets Manager CSI driver
+  # or External Secrets Operator), NOT stored in this YAML file.
+  # This file is for local/dev K8s only. ───
   OPERATIONAL_DB_USER: "chief_app"
   OPERATIONAL_DB_PASSWORD: "changeme_operational"
   FINANCIAL_DB_USER: "chief_financial_app"
@@ -47,3 +57,9 @@ stringData:
   DOCUMENTS_DB_PASSWORD: "changeme_documents"
   JWT_SECRET: "changeme_jwt_secret"
   VAULT_ENCRYPTION_KEY: "changeme_vault_key_32_bytes_long!"
+
+  # AWS Secrets Manager credentials (only needed when VAULT_BACKEND=aws)
+  # In production EKS: use IAM Roles for Service Accounts (IRSA) instead
+  # AWS_ACCESS_KEY_ID: ""
+  # AWS_SECRET_ACCESS_KEY: ""
+  # AWS_REGION: "us-east-1"
