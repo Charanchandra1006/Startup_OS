@@ -487,6 +487,38 @@ class Orchestrator:
         """Set the function used to dispatch tasks to specialist agents."""
         self._agent_dispatch_fn = fn
 
+    async def _publish_event(
+        self, goal: Goal, state: str, detail: dict | None = None
+    ) -> None:
+        """Publish a state-transition event to the goal_events table.
+        
+        STARTUP_OS_MASTER_BUILD_PLAN Part 3.3: The API Gateway tails this table
+        via SSE, so the frontend sees real pipeline state instead of a scripted demo.
+        """
+        if self.db_pool:
+            try:
+                async with self.db_pool.acquire() as conn:
+                    import json
+                    await conn.execute(
+                        """
+                        INSERT INTO goal_events (goal_id, tenant_id, state, detail)
+                        VALUES ($1, $2, $3, $4::jsonb)
+                        """,
+                        uuid.UUID(goal.id),
+                        uuid.UUID(goal.tenant_id),
+                        state,
+                        json.dumps(detail or {}),
+                    )
+            except Exception as e:
+                logger.error(f"Failed to publish event for goal {goal.id}: {e}")
+        
+        logger.info("goal_state_transition", extra={
+            "goal_id": goal.id,
+            "tenant_id": goal.tenant_id,
+            "state": state,
+            "trace_id": goal.trace_id,
+        })
+
     async def process_goal(
         self,
         goal_id: str,
@@ -522,6 +554,7 @@ class Orchestrator:
                 goal.transition(GoalStatus.CLASSIFYING)
                 self.state = goal.status
                 self._update_db_status_sync(goal)
+                await self._publish_event(goal, "CLASSIFYING")
                 
                 goal_type, confidence = await self.classifier.classify(raw_text, self.router)
                 goal.classified_type = goal_type
@@ -548,6 +581,7 @@ class Orchestrator:
                 goal.transition(GoalStatus.DECOMPOSING)
                 self.state = goal.status
                 self._update_db_status_sync(goal)
+                await self._publish_event(goal, "DECOMPOSING")
                 
                 tasks = await self.decomposer.decompose(goal, list(self.available_agents.keys()), self.router)
                 goal.tasks = tasks
@@ -557,10 +591,12 @@ class Orchestrator:
                 goal.transition(GoalStatus.DISPATCHING)
                 self.state = goal.status
                 self._update_db_status_sync(goal)
+                await self._publish_event(goal, "DISPATCHING", {"task_count": len(tasks)})
                 
                 goal.transition(GoalStatus.AWAITING_SPECIALIST_OUTPUT)
                 self.state = goal.status
                 self._update_db_status_sync(goal)
+                await self._publish_event(goal, "AWAITING_SPECIALIST_OUTPUT")
 
                 # Dispatch tasks to agents in parallel
                 if self._agent_dispatch_fn:
@@ -617,6 +653,7 @@ class Orchestrator:
                 goal.transition(GoalStatus.SYNTHESIZING)
                 self.state = goal.status
                 self._update_db_status_sync(goal)
+                await self._publish_event(goal, "SYNTHESIZING")
                 
                 if goal.agent_outputs:
                     # Detect conflicts (AIDD §6)
@@ -625,6 +662,8 @@ class Orchestrator:
                     )
                     goal.conflicts_detected = has_conflicts
                     goal.conflict_detail = conflict_details
+                    if has_conflicts:
+                        await self._publish_event(goal, "CONFLICTS_DETECTED", {"conflicts": conflict_details})
 
                     # Synthesize report
                     final_report, actions = await self.synthesizer.synthesize(
@@ -639,6 +678,7 @@ class Orchestrator:
                         goal.transition(GoalStatus.ROUTING_ACTIONS)
                         self.state = goal.status
                         self._update_db_status_sync(goal)
+                        await self._publish_event(goal, "ROUTING_ACTIONS", {"action_count": len(actions)})
                         
                         # Execution Service integration happens here in Phase 2
                         span.add_event("actions_routed", {"count": len(actions)})
@@ -647,6 +687,7 @@ class Orchestrator:
                     goal.transition(GoalStatus.DELIVERED)
                     self.state = goal.status
                     self._update_db_status_sync(goal)
+                    await self._publish_event(goal, "DELIVERED", {"has_report": True})
                     
                     span.set_status("OK")
                     return {
@@ -659,6 +700,7 @@ class Orchestrator:
                     goal.transition(GoalStatus.FAILED)
                     self.state = goal.status
                     self._update_db_status_sync(goal)
+                    await self._publish_event(goal, "FAILED", {"reason": goal.error or "All specialist tasks failed"})
                     
                     task_errors = [t.error for t in goal.tasks if hasattr(t, "error") and t.error]
                     goal.error = f"Analysis failed: {'; '.join(task_errors)}" if task_errors else "All specialist tasks failed"
@@ -672,6 +714,7 @@ class Orchestrator:
                 goal.transition(GoalStatus.FAILED)
                 self.state = goal.status
                 self._update_db_status_sync(goal)
+                await self._publish_event(goal, "FAILED", {"reason": str(e)})
                 
                 goal.error = str(e)
                 logger.error(f"Goal {goal.id} failed: {e}", exc_info=True)

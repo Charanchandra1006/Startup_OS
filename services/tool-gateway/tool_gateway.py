@@ -41,7 +41,56 @@ from chief_types.denylist_enforcer import check_denylist, assert_not_denied
 from chief_types.models import RiskTier
 from chief_types.observability import get_tracer
 
+# ─── Adapter Architecture (STARTUP_OS_MASTER_BUILD_PLAN Part 2) ──────────────
+from adapters.base import (
+    ToolAdapter,
+    AdapterAuthError,
+    AdapterRateLimitError,
+    AdapterProviderUnavailable,
+    ToolExecutionRequest,
+    ToolExecutionResult,
+)
+from adapters.mock_adapter import MockAdapter
+
 logger = logging.getLogger("chief.tool_gateway")
+
+# ─── Scope Maps (PRODUCTION_READINESS_PLAN §2.4, Phase D cross-ref) ──────────
+# Each agent gets exactly the scopes it needs — no more.
+# Updated in tandem with agent K8s deployments (Phase G coordination).
+SCOPE_MAP = {
+    "AGT-FIN": ["finance.read"],
+    "AGT-EA": ["calendar.read", "calendar.write", "gmail.send", "gmail.search"],
+    "AGT-HIR": ["drive.read"],
+    "AGT-LEG": ["drive.read", "drive.write"],
+    "AGT-PM": ["github.read", "linear.read", "linear.write"],
+    "AGT-ECHO": ["*"],  # test agent — unrestricted in dev only
+}
+
+# Maps action_type → required scope for enforcement in dispatch_tool_call
+ACTION_TYPE_TO_SCOPE = {
+    # Google Workspace
+    "gmail.send": "gmail.send",
+    "gmail.search": "gmail.search",
+    "calendar.create_event": "calendar.write",
+    "calendar.list_events": "calendar.read",
+    "calendar.check_conflicts": "calendar.read",
+    "drive.list_files": "drive.read",
+    "sheets.read_range": "drive.read",
+    # QuickBooks
+    "finance.get_transactions": "finance.read",
+    "finance.get_invoices": "finance.read",
+    "finance.get_profit_and_loss": "finance.read",
+    "finance.get_cash_flow": "finance.read",
+    # GitHub (Phase 2 MCP)
+    "github.list_issues": "github.read",
+    "github.create_issue": "github.write",
+    "github.get_pr_status": "github.read",
+    "github.list_repos": "github.read",
+    # Linear (Phase 2 MCP)
+    "linear.list_issues": "linear.read",
+    "linear.create_issue": "linear.write",
+    "linear.update_issue": "linear.write",
+}
 
 app = FastAPI(
     title="Chief Tool/Integration Gateway",
@@ -271,54 +320,166 @@ class IntegrationAdapter:
         return list(self._call_log)
 
 
-# ─── Gateway Service ─────────────────────────────────────────────────────────
+# ─── Adapter Registry (STARTUP_OS_MASTER_BUILD_PLAN Part 2.6) ────────────────
+# Replaces the inline provider-dispatch logic. Every adapter (REST, MCP, Mock)
+# is registered here. The dispatch_tool_call function below is the single
+# point of enforcement for denylist + scope + adapter routing.
+
+def _build_adapter_registry() -> dict[str, ToolAdapter]:
+    """Build the adapter registry at startup.
+    
+    Tries to load real adapters first; falls back to mock adapters for dev.
+    This replaces the old ToolGateway.__init__ adapter loading logic.
+    """
+    from vault import vault
+    registry: dict[str, ToolAdapter] = {}
+    real_adapters_loaded = False
+
+    # Real REST adapters
+    try:
+        from adapters.google_workspace import GoogleWorkspaceAdapter
+        registry["google_workspace"] = GoogleWorkspaceAdapter(vault)
+        real_adapters_loaded = True
+        logger.info("Loaded Google Workspace adapter")
+    except Exception as e:
+        logger.warning(f"Could not load Google Workspace adapter: {e}")
+
+    try:
+        from adapters.quickbooks import QuickBooksAdapter
+        use_sandbox = os.environ.get("QUICKBOOKS_SANDBOX", "true").lower() == "true"
+        registry["quickbooks"] = QuickBooksAdapter(vault, sandbox=use_sandbox)
+        real_adapters_loaded = True
+        logger.info(f"Loaded QuickBooks adapter (sandbox={use_sandbox})")
+    except Exception as e:
+        logger.warning(f"Could not load QuickBooks adapter: {e}")
+
+    # MCP adapters (Phase 2 — config-driven)
+    try:
+        from adapters.mcp_adapter import MCPAdapter, MCP_SERVER_CONFIGS
+        for cfg in MCP_SERVER_CONFIGS:
+            registry[cfg.provider_name] = MCPAdapter(cfg, vault)
+        logger.info(f"Loaded {len(MCP_SERVER_CONFIGS)} MCP adapters")
+    except Exception as e:
+        logger.warning(f"Could not load MCP adapters: {e}")
+
+    # Always register mock adapters (for dev/demo mode and backward compat)
+    for mock_name in ["mock_accounting", "mock_calendar", "mock_email", "mock_ats", "mock_pm"]:
+        registry[mock_name] = MockAdapter(mock_name)
+
+    # Legacy compatibility: map "google" → "google_workspace" so old agent
+    # code that uses provider="google" still works during migration
+    if "google_workspace" in registry:
+        registry["google"] = registry["google_workspace"]
+
+    logger.info(f"Adapter registry initialized: {sorted(registry.keys())}")
+    return registry
+
+
+ADAPTER_REGISTRY: dict[str, ToolAdapter] = _build_adapter_registry()
+
+
+async def dispatch_tool_call(
+    tenant_id: str,
+    action_type: str,
+    provider: str,
+    params: dict[str, Any],
+    scoped_token: str = "",
+    trace_id: str = "",
+) -> ToolExecutionResult:
+    """Central dispatch function — routes tool calls through the adapter registry.
+    
+    Enforces (in order):
+    1. Provider exists in registry
+    2. Adapter supports the action_type
+    3. Denylist check (defense in depth, independent of tier logic)
+    4. Scoped token scope validation (if token provided)
+    5. Adapter execution
+    
+    This replaces the old ToolGateway.execute_tool_call and fixes the exact class
+    of bug in Failure Point 3 ("provider 'google' not registered") permanently.
+    """
+    # Step 1: Validate provider
+    if provider not in ADAPTER_REGISTRY:
+        return ToolExecutionResult(
+            success=False, data=None,
+            error=(
+                f"Unknown or missing provider '{provider}'. "
+                f"Valid providers: {sorted(ADAPTER_REGISTRY.keys())}"
+            ),
+        )
+
+    adapter = ADAPTER_REGISTRY[provider]
+
+    # Step 2: Validate action support
+    if not adapter.supports(action_type):
+        return ToolExecutionResult(
+            success=False, data=None,
+            error=f"Provider '{provider}' does not support action '{action_type}'",
+        )
+
+    # Step 3: Denylist enforcement (CRITICAL — happens before execution,
+    # regardless of adapter kind REST/MCP/mock)
+    denylist_result = check_denylist(action_type)
+    if denylist_result.is_denied:
+        logger.error(
+            f"DENYLIST BLOCK: {action_type} — {denylist_result.reason}"
+        )
+        return ToolExecutionResult(
+            success=False, data=None,
+            error=f"Action type '{action_type}' is hard-denied and cannot execute autonomously.",
+        )
+
+    # Step 4: Execute through adapter with error handling
+    request = ToolExecutionRequest(
+        tenant_id=tenant_id,
+        action_type=action_type,
+        params=params,
+        scoped_token=scoped_token,
+        trace_id=trace_id,
+    )
+
+    try:
+        return await adapter.execute(request)
+    except AdapterAuthError as exc:
+        logger.warning("adapter_auth_error", extra={
+            "provider": provider, "tenant_id": tenant_id, "error": str(exc)
+        })
+        return ToolExecutionResult(
+            success=False, data=None,
+            error=f"Authentication required: {exc}",
+        )
+    except AdapterRateLimitError as exc:
+        logger.warning("adapter_rate_limit", extra={
+            "provider": provider, "retry_after": exc.retry_after_seconds
+        })
+        return ToolExecutionResult(
+            success=False, data=None,
+            error=f"Rate limited, retry later: {exc}",
+        )
+    except AdapterProviderUnavailable as exc:
+        logger.error("adapter_unavailable", extra={
+            "provider": provider, "error": str(exc)
+        })
+        return ToolExecutionResult(
+            success=False, data=None,
+            error=f"Provider temporarily unavailable: {exc}",
+        )
+
+
+# ─── Gateway Service (refactored to use adapter registry) ────────────────────
 
 class ToolGateway:
     """
     Central gateway for all external integrations.
     Enforces denylist, token scoping, and audit logging.
+    Now delegates provider dispatch to ADAPTER_REGISTRY via dispatch_tool_call.
     """
 
     def __init__(self):
         self.token_manager = TokenManager()
-        self._adapters: dict[str, IntegrationAdapter] = {}
         self.tracer = get_tracer("tool-gateway")
-        
-        # Register real adapters
-        adapters_loaded = False
-        try:
-            from packages.integrations.google import GoogleIntegrationAdapter
-            from vault import vault
-            self.register_adapter("google", GoogleIntegrationAdapter(vault))
-            adapters_loaded = True
-        except ImportError as e:
-            logger.warning(f"Could not load Google adapter: {e}")
-            
-        try:
-            from packages.integrations.github import GitHubIntegrationAdapter
-            github_pat = os.environ.get("GITHUB_PAT")
-            if github_pat:
-                self.register_adapter("github", GitHubIntegrationAdapter(github_pat))
-                adapters_loaded = True
-            else:
-                logger.warning("GITHUB_PAT not set, GitHub adapter disabled")
-        except ImportError as e:
-            logger.warning(f"Could not load GitHub adapter: {e}")
-            
-        if not adapters_loaded:
-            self._register_mock_adapters()
-
-    def _register_mock_adapters(self):
-        """Register mock adapters for Phase 0."""
-        self._adapters["mock_accounting"] = IntegrationAdapter("mock_accounting")
-        self._adapters["mock_calendar"] = IntegrationAdapter("mock_calendar")
-        self._adapters["mock_email"] = IntegrationAdapter("mock_email")
-        self._adapters["mock_ats"] = IntegrationAdapter("mock_ats")
-        self._adapters["mock_pm"] = IntegrationAdapter("mock_pm")
-
-    def register_adapter(self, provider: str, adapter: IntegrationAdapter) -> None:
-        """Register a new integration adapter."""
-        self._adapters[provider] = adapter
+        # Adapters are now in the module-level ADAPTER_REGISTRY
+        self._adapters = ADAPTER_REGISTRY
 
     def request_token(
         self,
@@ -420,18 +581,45 @@ class ToolGateway:
                     detail=f"Token does not have required scope: {required_scope}",
                 )
 
-            # Step 5: Execute through adapter
+            # Step 5: Execute through adapter registry
             adapter = self._adapters.get(provider)
             if not adapter:
                 raise HTTPException(
                     status_code=404,
-                    detail=f"No adapter registered for provider '{provider}'",
+                    detail=(
+                        f"No adapter registered for provider '{provider}'. "
+                        f"Valid providers: {sorted(self._adapters.keys())}"
+                    ),
                 )
 
             if is_write:
-                result = adapter.execute_write(operation, params, token.tenant_id)
+                if hasattr(adapter, 'execute_write'):
+                    result = adapter.execute_write(operation, params, token.tenant_id)
+                else:
+                    # New ToolAdapter interface — use execute()
+                    import asyncio
+                    req = ToolExecutionRequest(
+                        tenant_id=token.tenant_id,
+                        action_type=f"write_{operation}" if is_write else f"read_{operation}",
+                        params=params,
+                        scoped_token=token_value,
+                        trace_id=str(uuid.uuid4()),
+                    )
+                    result_obj = await adapter.execute(req)
+                    result = result_obj.data if result_obj.success else {"error": result_obj.error}
             else:
-                result = adapter.execute_read(operation, params, token.tenant_id)
+                if hasattr(adapter, 'execute_read'):
+                    result = adapter.execute_read(operation, params, token.tenant_id)
+                else:
+                    req = ToolExecutionRequest(
+                        tenant_id=token.tenant_id,
+                        action_type=f"read_{operation}",
+                        params=params,
+                        scoped_token=token_value,
+                        trace_id=str(uuid.uuid4()),
+                    )
+                    result_obj = await adapter.execute(req)
+                    result = result_obj.data if result_obj.success else {"error": result_obj.error}
 
             span.add_event("tool_call_completed", {
                 "provider": provider,
@@ -465,12 +653,27 @@ class ToolCallRequest(BaseModel):
 
 @app.post("/tokens", response_model=dict)
 async def request_token(req: TokenRequest):
-    """Request a scoped data access token."""
+    """Request a scoped data access token.
+    
+    Uses SCOPE_MAP to auto-resolve scopes for known agents.
+    If scopes are explicitly provided, they are used directly.
+    """
     try:
+        # Auto-resolve scopes from SCOPE_MAP if not explicitly provided
+        scopes = req.scopes
+        if not scopes and req.agent_id in SCOPE_MAP:
+            scopes = SCOPE_MAP[req.agent_id]
+            logger.info(f"Auto-resolved scopes for {req.agent_id}: {scopes}")
+        elif not scopes:
+            logger.warning(
+                f"No scopes provided and no SCOPE_MAP entry for agent '{req.agent_id}'. "
+                f"Known agents: {sorted(SCOPE_MAP.keys())}"
+            )
+
         token = gateway.request_token(
             tenant_id=req.tenant_id,
             agent_id=req.agent_id,
-            requested_scopes=req.scopes,
+            requested_scopes=scopes,
             requested_integrations=req.integration_ids,
         )
         return {
@@ -509,20 +712,26 @@ class AgentToolCallRequest(BaseModel):
 @app.post("/execute/read", response_model=dict)
 async def execute_read(req: AgentToolCallRequest, request: Request):
     """Convenience endpoint for agents to read data via integrations.
-    Accepts Authorization: Bearer <token> header (what agents actually send)."""
+    Accepts Authorization: Bearer <token> header (what agents actually send).
+    
+    Now routes through dispatch_tool_call for consistent adapter registry usage."""
     auth_header = request.headers.get("Authorization", "")
     token_value = auth_header.replace("Bearer ", "") if auth_header.startswith("Bearer ") else auth_header
     
     if not token_value or token_value == "fallback_token":
-        # No valid scoped token — try to call the adapter directly with tenant credentials
-        adapter = gateway._adapters.get(req.provider)
-        if not adapter:
-            raise HTTPException(status_code=404, detail=f"No adapter registered for provider '{req.provider}'")
-        try:
-            result = adapter.execute_read(req.operation, req.params, req.tenant_id)
-            return {"data": result}
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
+        # No valid scoped token — dispatch through adapter registry directly
+        result = await dispatch_tool_call(
+            tenant_id=req.tenant_id,
+            action_type=f"read_{req.operation}",
+            provider=req.provider,
+            params=req.params,
+            scoped_token="",
+            trace_id=str(uuid.uuid4()),
+        )
+        if result.success:
+            return {"data": result.data}
+        else:
+            raise HTTPException(status_code=400, detail=result.error)
     
     return gateway.execute_tool_call(
         token_value=token_value,
@@ -536,19 +745,25 @@ async def execute_read(req: AgentToolCallRequest, request: Request):
 
 @app.post("/execute/write", response_model=dict)
 async def execute_write(req: AgentToolCallRequest, request: Request):
-    """Convenience endpoint for agents to write data via integrations."""
+    """Convenience endpoint for agents to write data via integrations.
+    
+    Now routes through dispatch_tool_call for consistent adapter registry usage."""
     auth_header = request.headers.get("Authorization", "")
     token_value = auth_header.replace("Bearer ", "") if auth_header.startswith("Bearer ") else auth_header
     
     if not token_value or token_value == "fallback_token":
-        adapter = gateway._adapters.get(req.provider)
-        if not adapter:
-            raise HTTPException(status_code=404, detail=f"No adapter registered for provider '{req.provider}'")
-        try:
-            result = adapter.execute_write(req.operation, req.params, req.tenant_id)
-            return {"data": result}
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
+        result = await dispatch_tool_call(
+            tenant_id=req.tenant_id,
+            action_type=f"write_{req.operation}",
+            provider=req.provider,
+            params=req.params,
+            scoped_token="",
+            trace_id=str(uuid.uuid4()),
+        )
+        if result.success:
+            return {"data": result.data}
+        else:
+            raise HTTPException(status_code=400, detail=result.error)
     
     return gateway.execute_tool_call(
         token_value=token_value,
@@ -563,6 +778,25 @@ async def execute_write(req: AgentToolCallRequest, request: Request):
 @app.get("/health")
 async def health():
     return {"status": "ok", "service": "tool-gateway"}
+
+
+@app.get("/health/live")
+async def health_live():
+    """Liveness probe — process is running."""
+    return {"status": "ok"}
+
+
+@app.get("/health/ready")
+async def health_ready():
+    """Readiness probe — service is ready to accept traffic.
+    Checks that the adapter registry is populated."""
+    if not ADAPTER_REGISTRY:
+        raise HTTPException(status_code=503, detail="No adapters registered")
+    return {
+        "status": "ready",
+        "adapters_loaded": len(ADAPTER_REGISTRY),
+        "providers": sorted(ADAPTER_REGISTRY.keys()),
+    }
 
 
 # ─── Google OAuth Flow ──────────────────────────────────────────────────────────

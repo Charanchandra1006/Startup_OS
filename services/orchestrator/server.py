@@ -252,7 +252,29 @@ async def get_goal_status(goal_id: str, request: Request):
                     "tasks": []
                 }
                 
-    raise HTTPException(status_code=404, detail="Goal not found")
+@app.get("/health")
+async def health():
+    return {"status": "ok", "service": "orchestrator"}
+
+
+@app.get("/health/live")
+async def health_live():
+    """Liveness probe — process is running."""
+    return {"status": "ok"}
+
+
+@app.get("/health/ready")
+async def health_ready():
+    """Readiness probe — DB connected and service ready."""
+    if db_pool is None:
+        return {"status": "not_ready", "reason": "no_db_pool"}
+    try:
+        async with db_pool.acquire() as conn:
+            await conn.fetchval("SELECT 1")
+        return {"status": "ready", "active_goals": len(active_orchestrators)}
+    except Exception as e:
+        return {"status": "not_ready", "reason": str(e)}
+
 
 if __name__ == "__main__":
     import uvicorn

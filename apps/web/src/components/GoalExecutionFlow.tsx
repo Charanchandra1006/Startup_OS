@@ -1,209 +1,299 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
-import { API_BASE_URL, fetchGoalStatus } from "../lib/api";
+/**
+ * GoalExecutionFlow — Real-time pipeline state visualization.
+ *
+ * STARTUP_OS_MASTER_BUILD_PLAN Part 3.5: Consumes the real
+ * /api/goals/:goalId/stream SSE endpoint, which tails the
+ * goal_events DB table populated by the Orchestrator's _publish_event().
+ *
+ * No scripted animations — every state change comes from the actual pipeline.
+ * The scripted demo lives in demo/DemoGoalExecutionFlow.tsx and is never
+ * reachable from a logged-in founder's normal goal-submission flow.
+ */
 
-type ExecutionState = "starting" | "agents_running" | "conflict" | "report" | "executing" | "done";
+import React, { useState, useEffect, useCallback } from "react";
+import { API_BASE_URL, fetchGoalStatus, getAuthToken } from "../lib/api";
 
-export function GoalExecutionFlow({ goalText, goalId, onComplete }: { goalText: string, goalId: string | null, onComplete: () => void }) {
-  const [state, setState] = useState<ExecutionState>("starting");
-  const [agents, setAgents] = useState<{name: string, status: "pending" | "running" | "completed"}[]>([]);
-  const [conflict, setConflict] = useState<any>(null);
-  const [reportData, setReportData] = useState<any>(null);
-  const [executionLogs, setExecutionLogs] = useState<string[]>([]);
+// Maps orchestrator state machine values to UI display
+const STATE_LABELS: Record<string, { label: string; color: string; icon: string }> = {
+  CLASSIFYING:              { label: "Classifying Goal",          color: "bg-blue-500",    icon: "🔍" },
+  DECOMPOSING:              { label: "Decomposing into Tasks",    color: "bg-indigo-500",  icon: "🧩" },
+  DISPATCHING:              { label: "Dispatching Agents",        color: "bg-purple-500",  icon: "🚀" },
+  AWAITING_SPECIALIST_OUTPUT: { label: "Agents Working",          color: "bg-amber-500",   icon: "⚙️" },
+  SYNTHESIZING:             { label: "Synthesizing Report",       color: "bg-cyan-500",    icon: "📊" },
+  CONFLICTS_DETECTED:       { label: "Conflict Detected",         color: "bg-orange-500",  icon: "⚠️" },
+  ROUTING_ACTIONS:          { label: "Routing Actions",           color: "bg-teal-500",    icon: "🎯" },
+  DELIVERED:                { label: "Report Delivered",          color: "bg-emerald-500", icon: "✅" },
+  FAILED:                   { label: "Analysis Failed",           color: "bg-red-500",     icon: "❌" },
+  STALLED:                  { label: "Goal Stalled",              color: "bg-gray-500",    icon: "⏸️" },
+};
 
-  useEffect(() => {
-    // ALWAYS run the mock pitch demo flow for a guaranteed flawless pitch!
-    const eventSource = new EventSource(`${API_BASE_URL}/demo/series-a`);
-    
-    eventSource.addEventListener("agents_dispatched", (e) => {
-      const data = JSON.parse(e.data);
-      setAgents(data.agents.map((a: string) => ({ name: a, status: "running" })));
-      setState("agents_running");
-    });
+interface StateEvent {
+  state: string;
+  detail: Record<string, any>;
+  timestamp: string;
+}
 
-    eventSource.addEventListener("agents_processing", (e) => {
-      const data = JSON.parse(e.data);
-      setAgents(prev => prev.map(a => {
-        if (data.completed.includes(a.name)) return { ...a, status: "completed" };
-        return a;
-      }));
-    });
+export function GoalExecutionFlow({
+  goalText,
+  goalId,
+  onComplete,
+}: {
+  goalText: string;
+  goalId: string | null;
+  onComplete: () => void;
+}) {
+  const [events, setEvents] = useState<StateEvent[]>([]);
+  const [currentState, setCurrentState] = useState<string>("STARTING");
+  const [error, setError] = useState<string | null>(null);
+  const [report, setReport] = useState<any>(null);
+  const [tasks, setTasks] = useState<any[]>([]);
+  const [connected, setConnected] = useState(false);
 
-    eventSource.addEventListener("conflict_detected", (e) => {
-      setConflict(JSON.parse(e.data));
-      setState("conflict");
-    });
-
-    eventSource.addEventListener("report_generated", (e) => {
-      setReportData(JSON.parse(e.data));
-      setState("report");
-      eventSource.close();
-    });
-
-    return () => eventSource.close();
+  // Fetch report data once we hit a terminal state
+  const fetchReport = useCallback(async (gId: string) => {
+    try {
+      const data = await fetchGoalStatus(gId);
+      if (data.report) setReport(data.report);
+      if (data.tasks) setTasks(data.tasks);
+    } catch (e) {
+      console.error("Failed to fetch goal report:", e);
+    }
   }, []);
 
-  const handleApprove = () => {
-    setState("executing");
-    // Simulate real-time execution logs
-    const logs = [
-      "Creating Job Description for Senior Engineers...",
-      "Posting to LinkedIn...",
-      "Identifying top 10 candidates...",
-      "Drafting outreach emails...",
-      "Scheduling preliminary sync with CFO for budget allocation..."
-    ];
-    let i = 0;
-    const interval = setInterval(() => {
-      setExecutionLogs(prev => [...prev, logs[i]]);
-      i++;
-      if (i >= logs.length) {
-        clearInterval(interval);
-        setTimeout(() => setState("done"), 1500);
+  // Connect to the real SSE stream
+  useEffect(() => {
+    if (!goalId) return;
+
+    let eventSource: EventSource | null = null;
+    let reconnectTimeout: NodeJS.Timeout;
+
+    const connect = async () => {
+      try {
+        // SSE endpoint requires auth via query param since EventSource
+        // doesn't support custom headers
+        const token = await getAuthToken();
+        const streamUrl = `${API_BASE_URL}/goals/${goalId}/stream`;
+
+        // We can't add auth headers to EventSource, but the endpoint
+        // is behind the authenticateJWT middleware which reads from the
+        // cookie/session set during login. For API Gateway proxy,
+        // we rely on the existing JWT cookie.
+        eventSource = new EventSource(streamUrl, { withCredentials: true });
+        setConnected(true);
+        setError(null);
+
+        eventSource.addEventListener("state_change", (e) => {
+          const data: StateEvent = JSON.parse(e.data);
+          setEvents(prev => [...prev, data]);
+          setCurrentState(data.state);
+
+          // Fetch full report on terminal states
+          if (["DELIVERED", "FAILED", "STALLED"].includes(data.state)) {
+            fetchReport(goalId);
+          }
+        });
+
+        eventSource.addEventListener("stream_end", () => {
+          eventSource?.close();
+          setConnected(false);
+        });
+
+        eventSource.onerror = () => {
+          setConnected(false);
+          eventSource?.close();
+          // Auto-reconnect after 2s
+          reconnectTimeout = setTimeout(connect, 2000);
+        };
+      } catch (err) {
+        setError("Failed to connect to goal stream");
+        console.error("SSE connection error:", err);
       }
-    }, 1200);
+    };
+
+    connect();
+
+    // Fallback: poll goal status every 3s in case SSE fails
+    const pollInterval = setInterval(async () => {
+      if (!connected && goalId) {
+        try {
+          const status = await fetchGoalStatus(goalId);
+          if (status.status && status.status !== currentState) {
+            setCurrentState(status.status.toUpperCase());
+          }
+          if (status.report) setReport(status.report);
+          if (status.tasks) setTasks(status.tasks);
+          if (["delivered", "failed", "stalled"].includes(status.status)) {
+            clearInterval(pollInterval);
+          }
+        } catch (e) {
+          // Ignore poll errors — SSE is the primary channel
+        }
+      }
+    }, 3000);
+
+    return () => {
+      eventSource?.close();
+      clearTimeout(reconnectTimeout);
+      clearInterval(pollInterval);
+    };
+  }, [goalId, connected, currentState, fetchReport]);
+
+  const stateInfo = STATE_LABELS[currentState] || {
+    label: currentState,
+    color: "bg-slate-500",
+    icon: "⏳",
   };
 
-  if (state === "starting") {
+  const isTerminal = ["DELIVERED", "FAILED", "STALLED"].includes(currentState);
+
+  // Starting state — waiting for goalId
+  if (!goalId || currentState === "STARTING") {
     return (
       <div className="p-8 text-center bg-white border border-slate-200 rounded-2xl animate-pulse text-indigo-600 shadow-sm">
-        Initializing Chief OS Dispatcher...
+        Initializing Chief OS Orchestrator...
       </div>
     );
   }
 
   return (
     <div className="flex flex-col gap-6 animate-in fade-in slide-in-from-bottom-4 duration-700">
-      
-      {/* Screen 3: Agent Activity */}
-      {(state === "agents_running" || state === "conflict" || state === "report") && (
-        <div className="p-6 rounded-2xl bg-white border border-slate-200 shadow-lg">
-          <h3 className="text-lg font-medium text-slate-900 mb-4 flex items-center gap-2">
+
+      {/* Live Pipeline State */}
+      <div className="p-6 rounded-2xl bg-white border border-slate-200 shadow-lg">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-medium text-slate-900 flex items-center gap-2">
             <span className="relative flex h-3 w-3">
-              {(state === "agents_running") && <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>}
-              <span className={`relative inline-flex rounded-full h-3 w-3 ${state === "agents_running" ? 'bg-indigo-500' : 'bg-emerald-500'}`}></span>
+              {!isTerminal && (
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
+              )}
+              <span className={`relative inline-flex rounded-full h-3 w-3 ${stateInfo.color}`}></span>
             </span>
-            Agent Activity
+            Pipeline Status
           </h3>
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-            {agents.map(agent => (
-              <div key={agent.name} className={`p-3 rounded-xl border flex flex-col items-center justify-center gap-2 transition-colors ${agent.status === 'completed' ? 'bg-emerald-50 border-emerald-200' : 'bg-slate-50 border-slate-200'}`}>
-                <div className="text-sm font-medium text-slate-700">{agent.name}</div>
-                {agent.status === "completed" ? (
-                  <span className="text-emerald-600 font-bold text-lg">✓</span>
-                ) : (
-                  <span className="h-4 w-4 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin"></span>
-                )}
-              </div>
-            ))}
+          {connected && (
+            <span className="text-xs text-emerald-600 bg-emerald-50 px-2 py-1 rounded-full">
+              ● Live
+            </span>
+          )}
+        </div>
+
+        {/* Current State */}
+        <div className="flex items-center gap-3 p-4 rounded-xl bg-slate-50 border border-slate-200 mb-4">
+          <span className="text-2xl">{stateInfo.icon}</span>
+          <div>
+            <div className="font-semibold text-slate-900">{stateInfo.label}</div>
+            <div className="text-sm text-slate-500">Goal: {goalText.substring(0, 80)}{goalText.length > 80 ? "..." : ""}</div>
           </div>
         </div>
-      )}
 
-      {/* Screen 4: Conflict Resolution */}
-      {(state === "conflict" || state === "report") && conflict && (
+        {/* State Timeline */}
+        <div className="space-y-2">
+          {events.map((event, i) => {
+            const info = STATE_LABELS[event.state] || { label: event.state, color: "bg-slate-400", icon: "·" };
+            return (
+              <div key={i} className="flex items-center gap-3 text-sm">
+                <span className={`flex-shrink-0 w-2 h-2 rounded-full ${info.color}`}></span>
+                <span className="text-slate-600 font-mono text-xs w-20">
+                  {new Date(event.timestamp).toLocaleTimeString()}
+                </span>
+                <span className="text-slate-800">{info.icon} {info.label}</span>
+                {event.detail && Object.keys(event.detail).length > 0 && (
+                  <span className="text-slate-400 text-xs">
+                    {JSON.stringify(event.detail)}
+                  </span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Conflict Alert */}
+      {events.some(e => e.state === "CONFLICTS_DETECTED") && (
         <div className="p-6 rounded-2xl bg-orange-50 border border-orange-200 shadow-md animate-in fade-in slide-in-from-bottom-4">
-          <div className="flex items-center gap-2 mb-4">
-            <span className="text-orange-600 font-bold">Conflict Detected</span>
+          <div className="flex items-center gap-2 mb-2">
+            <span className="text-orange-600 font-bold">⚠️ Conflict Detected</span>
           </div>
-          <div className="grid md:grid-cols-2 gap-4 mb-4">
-            <div className="p-4 bg-white rounded-xl border border-orange-100 shadow-sm">
-              <span className="text-xs text-slate-500 uppercase tracking-wider">{conflict?.agent_a?.name}</span>
-              <p className="text-slate-800 mt-1">"{conflict?.agent_a?.claim}"</p>
-            </div>
-            <div className="p-4 bg-white rounded-xl border border-orange-100 shadow-sm">
-              <span className="text-xs text-slate-500 uppercase tracking-wider">{conflict?.agent_b?.name}</span>
-              <p className="text-slate-800 mt-1">"{conflict?.agent_b?.claim}"</p>
-            </div>
-          </div>
-          {reportData?.resolution && (
-            <div className="mt-4 p-4 border-l-4 border-indigo-500 bg-indigo-50 rounded-r-xl">
-              <span className="text-xs text-indigo-600 font-semibold uppercase tracking-wider">Chief Resolution</span>
-              <p className="text-indigo-900 mt-1">{reportData?.resolution}</p>
-            </div>
+          <p className="text-sm text-slate-700">
+            Specialist agents produced conflicting outputs. The orchestrator resolved the conflict during synthesis.
+          </p>
+          {events.find(e => e.state === "CONFLICTS_DETECTED")?.detail?.conflicts && (
+            <pre className="mt-2 p-3 bg-white rounded-lg border text-xs overflow-auto max-h-40">
+              {JSON.stringify(events.find(e => e.state === "CONFLICTS_DETECTED")?.detail.conflicts, null, 2)}
+            </pre>
           )}
         </div>
       )}
 
-      {/* Screen 5: Executive Report & Screen 6: Approval */}
-      {state === "report" && reportData && (
-        <div className="p-6 rounded-2xl bg-white border border-emerald-200 shadow-lg animate-in fade-in slide-in-from-bottom-4">
-          <h3 className="text-2xl font-semibold text-slate-900 mb-6">Executive Briefing</h3>
-          
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-            <div className="p-4 rounded-xl bg-slate-50 border border-slate-200">
-              <span className="text-xs text-slate-500 uppercase tracking-wider">Financial Health</span>
-              <p className="text-lg font-medium text-emerald-600 mt-1">{reportData?.report?.financial_health?.status}</p>
-            </div>
-            <div className="p-4 rounded-xl bg-slate-50 border border-slate-200">
-              <span className="text-xs text-slate-500 uppercase tracking-wider">Hiring</span>
-              <p className="text-lg font-medium text-yellow-600 mt-1">{reportData?.report?.hiring?.status}</p>
-            </div>
-            <div className="p-4 rounded-xl bg-slate-50 border border-slate-200">
-              <span className="text-xs text-slate-500 uppercase tracking-wider">Engineering</span>
-              <p className="text-lg font-medium text-emerald-600 mt-1">{reportData?.report?.engineering?.status}</p>
-            </div>
-            <div className="p-4 rounded-xl bg-slate-50 border border-slate-200">
-              <span className="text-xs text-slate-500 uppercase tracking-wider">Legal</span>
-              <p className="text-lg font-medium text-emerald-600 mt-1">{reportData?.report?.legal?.status}</p>
-            </div>
-          </div>
-
-          <div className="p-5 rounded-xl bg-emerald-50 border border-emerald-100 mb-8">
-            <span className="text-sm text-emerald-600 font-semibold uppercase tracking-wider">Top Recommendation</span>
-            <p className="text-xl text-emerald-900 mt-1">{reportData?.report?.top_recommendation}</p>
-          </div>
-
-          <div className="pt-6 border-t border-slate-200 flex flex-col items-center justify-center gap-4">
-            <p className="text-lg text-slate-700">Would you like me to execute this hiring plan?</p>
-            <div className="flex gap-4">
-              <button onClick={handleApprove} className="px-8 py-3 rounded-xl bg-emerald-600 text-white font-bold hover:bg-emerald-700 transition-colors shadow-md">
-                Approve
-              </button>
-              <button className="px-8 py-3 rounded-xl bg-slate-100 text-slate-900 font-medium hover:bg-slate-200 transition-colors border border-slate-200">
-                Modify
-              </button>
-              <button className="px-8 py-3 rounded-xl bg-slate-100 text-slate-900 font-medium hover:bg-red-50 transition-colors hover:text-red-600 border border-slate-200">
-                Reject
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Screen 7: Execution */}
-      {(state === "executing" || state === "done") && (
-        <div className="p-6 rounded-2xl bg-black border border-white/20 shadow-2xl animate-in zoom-in-95 duration-300">
-          <h3 className="text-lg font-mono text-emerald-500 mb-4 flex items-center gap-2">
-            <span className="h-2 w-2 bg-emerald-500 rounded-full animate-pulse"></span>
-            CHIEF_EXECUTION_STREAM
-          </h3>
-          <div className="font-mono text-sm text-slate-300 space-y-2">
-            {executionLogs.map((log, i) => (
-              <div key={i} className="flex gap-4 animate-in slide-in-from-left-4">
-                <span className="text-slate-600">[{new Date().toLocaleTimeString()}]</span>
-                <span className="text-emerald-400">{log}</span>
+      {/* Decomposed Tasks */}
+      {tasks.length > 0 && (
+        <div className="p-6 rounded-2xl bg-white border border-slate-200 shadow-lg animate-in fade-in">
+          <h3 className="text-lg font-semibold text-slate-900 mb-4">Decomposed Tasks</h3>
+          <div className="grid md:grid-cols-2 gap-3">
+            {tasks.map((task: any, i: number) => (
+              <div key={task.id || i} className="p-4 rounded-xl bg-slate-50 border border-slate-200">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-xs font-mono bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded">
+                    {task.department || "AI"}
+                  </span>
+                  <span className="text-xs text-slate-400">{task.priority || "Standard"}</span>
+                </div>
+                <p className="text-sm text-slate-800">{task.title || task.description}</p>
               </div>
             ))}
-            {state === "executing" && (
-              <div className="flex gap-4 animate-pulse mt-2">
-                <span className="text-slate-600">[{new Date().toLocaleTimeString()}]</span>
-                <span className="text-slate-500">_</span>
-              </div>
-            )}
-            {state === "done" && (
-              <div className="flex gap-4 mt-4 pt-4 border-t border-white/10">
-                <span className="text-emerald-400 font-bold">EXECUTION COMPLETE.</span>
-                <button onClick={onComplete} className="ml-auto text-indigo-400 hover:text-indigo-300 underline underline-offset-2">
-                  Return to Dashboard
-                </button>
-              </div>
-            )}
           </div>
         </div>
       )}
 
+      {/* Final Report */}
+      {isTerminal && report && (
+        <div className="p-6 rounded-2xl bg-white border border-emerald-200 shadow-lg animate-in fade-in slide-in-from-bottom-4">
+          <h3 className="text-2xl font-semibold text-slate-900 mb-4">Executive Briefing</h3>
+          
+          {report.executive_summary && (
+            <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-100 mb-4">
+              <span className="text-sm text-emerald-600 font-semibold uppercase tracking-wider">Summary</span>
+              <p className="text-emerald-900 mt-1">{report.executive_summary}</p>
+            </div>
+          )}
+
+          {report.recommendations && (
+            <div className="p-4 rounded-xl bg-indigo-50 border border-indigo-100 mb-4">
+              <span className="text-sm text-indigo-600 font-semibold uppercase tracking-wider">Recommendations</span>
+              <p className="text-indigo-900 mt-1">{report.recommendations}</p>
+            </div>
+          )}
+
+          <div className="pt-4 border-t border-slate-200 flex justify-center">
+            <button
+              onClick={onComplete}
+              className="px-8 py-3 rounded-xl bg-emerald-600 text-white font-bold hover:bg-emerald-700 transition-colors shadow-md"
+            >
+              Return to Dashboard
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Error State */}
+      {currentState === "FAILED" && !report && (
+        <div className="p-6 rounded-2xl bg-red-50 border border-red-200 shadow-md animate-in fade-in">
+          <div className="flex items-center gap-2 mb-2">
+            <span className="text-red-600 font-bold">❌ Analysis Failed</span>
+          </div>
+          <p className="text-sm text-slate-700 mb-4">
+            {error || "The orchestrator encountered an error during goal processing."}
+          </p>
+          <button
+            onClick={onComplete}
+            className="px-6 py-2 rounded-xl bg-slate-100 text-slate-900 font-medium hover:bg-slate-200 transition-colors border border-slate-200"
+          >
+            Return to Dashboard
+          </button>
+        </div>
+      )}
     </div>
   );
 }

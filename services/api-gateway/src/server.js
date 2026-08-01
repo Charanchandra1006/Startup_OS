@@ -461,43 +461,72 @@ app.get('/api/audit-log', (req, res) => {
   });
 });
 
-// --- Mock Demo Flow (Pitch Bypass) ---
-app.get('/api/demo/series-a', (req, res) => {
-  res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache');
-  res.setHeader('Connection', 'keep-alive');
-  res.flushHeaders(); // flush the headers to establish SSE with client
+// --- Real-Time Goal Stream (SSE) — STARTUP_OS_MASTER_BUILD_PLAN Part 3.4 ---
+// Replaces the duplicate mock demo SSE route that was here (lines 464-501).
+// Tails the goal_events DB table for real pipeline state.
+app.get('/api/goals/:goalId/stream', async (req, res) => {
+  const { goalId } = req.params;
+  const tenantId = req.tenantId;
+
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive',
+    'X-Accel-Buffering': 'no', // Disable nginx buffering for SSE
+  });
 
   const sendEvent = (event, data) => {
-    res.write(`event: ${event}\n`);
-    res.write(`data: ${JSON.stringify(data)}\n\n`);
+    res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
   };
 
-  // 1. Dispatch
-  setTimeout(() => {
-    sendEvent('agents_dispatched', { agents: ['Finance Agent', 'Marketing Agent', 'HR Agent'] });
-  }, 1000);
+  // Track the last event we sent so we only send new ones
+  let lastEventTime = new Date(0).toISOString();
+  let closed = false;
+  const TERMINAL_STATES = ['DELIVERED', 'FAILED', 'STALLED'];
 
-  // 2. Processing
-  setTimeout(() => {
-    sendEvent('agents_processing', { completed: ['Finance Agent'] });
-  }, 3500);
+  const poll = async () => {
+    if (closed) return;
+    try {
+      const result = await dbPool.query(
+        `SELECT state, detail, created_at FROM goal_events
+         WHERE goal_id = $1 AND tenant_id = $2 AND created_at > $3
+         ORDER BY created_at ASC`,
+        [goalId, tenantId, lastEventTime]
+      );
 
-  // 3. Conflict
-  setTimeout(() => {
-    sendEvent('conflict_detected', {
-      type: 'Budget Constraint vs Hiring Plan',
-      details: 'Marketing wants $200k for ad spend, but HR wants $150k for new engineers. Total exceeds remaining Q2 budget.',
-      resolutionOptions: [
-        { id: '1', text: 'Approve $200k Marketing (delay hires)' },
-        { id: '2', text: 'Approve $150k HR (reduce ad spend)' },
-        { id: '3', text: 'Ask CFO to unlock $50k reserves' }
-      ]
-    });
-  }, 6000);
+      for (const row of result.rows) {
+        sendEvent('state_change', {
+          state: row.state,
+          detail: row.detail,
+          timestamp: row.created_at,
+        });
+        lastEventTime = row.created_at.toISOString();
 
-  // Note: The UI stops at 'conflict_detected' and waits for user interaction.
-  // We can also send 'report_generated' if needed, but the UI expects user to click "Resolve & Execute".
+        // Close stream on terminal states
+        if (TERMINAL_STATES.includes(row.state)) {
+          sendEvent('stream_end', { reason: row.state });
+          res.end();
+          closed = true;
+          return;
+        }
+      }
+    } catch (err) {
+      console.error('SSE poll error:', err.message);
+      // Don't kill the stream on transient DB errors — retry next poll
+    }
+
+    if (!closed) {
+      setTimeout(poll, 500); // poll every 500ms
+    }
+  };
+
+  // Start polling
+  poll();
+
+  // Clean up on client disconnect
+  req.on('close', () => {
+    closed = true;
+  });
 });
 
 // --- Metrics ---

@@ -509,6 +509,96 @@ CREATE POLICY insight_tenant_isolation ON insights
     USING (tenant_id = current_setting('app.current_tenant_id', true)::UUID);
 
 COMMENT ON TABLE insights IS 'Proactive insight feed items. PRD FR-5.1/5.2, WDD Â§4. Persistent until dismissed or acted upon.';
+
+-- ============================================================================
+-- Chief AI Startup OS — Operational Store
+-- Migration 012: Create Goal Events Table (Real-Time State Stream)
+-- Implements: STARTUP_OS_MASTER_BUILD_PLAN Part 3.2
+--
+-- The orchestrator publishes one event per state transition. The API Gateway
+-- exposes these as an SSE stream to the frontend, replacing the scripted
+-- demo animation with real pipeline state.
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS goal_events (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    goal_id         UUID NOT NULL REFERENCES goals(id) ON DELETE CASCADE,
+    tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    state           VARCHAR(64) NOT NULL,
+    detail          JSONB DEFAULT '{}',
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX ix_goal_events_goal_id ON goal_events(goal_id);
+CREATE INDEX ix_goal_events_tenant_id ON goal_events(tenant_id);
+CREATE INDEX ix_goal_events_goal_id_created_at ON goal_events(goal_id, created_at);
+
+-- Enable Row Level Security
+ALTER TABLE goal_events ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY goal_events_tenant_isolation ON goal_events
+    USING (tenant_id = current_setting('app.current_tenant_id', true)::UUID);
+
+COMMENT ON TABLE goal_events IS
+    'Real-time state transition events for goals. MASTER_BUILD_PLAN Part 3. '
+    'One row per orchestrator state transition, consumed via SSE by the frontend.';
+
+-- ============================================================================
+-- Chief AI Startup OS — Operational Store
+-- Migration 013: Create Tool Connections Table
+-- Implements: STARTUP_OS_MASTER_BUILD_PLAN Part 5.1
+--
+-- Tracks per-tenant, per-provider OAuth connection state (separate from
+-- actual encrypted tokens, which live in Vault).
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS tool_connections (
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id           UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    provider            TEXT NOT NULL,
+    connected_by_user_id UUID NOT NULL REFERENCES users(id),
+    connected_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_refreshed_at   TIMESTAMPTZ,
+    scopes              TEXT[] NOT NULL DEFAULT '{}',
+    status              TEXT NOT NULL DEFAULT 'active'
+                        CHECK (status IN ('active', 'revoked', 'error')),
+
+    CONSTRAINT uq_tool_connection_tenant_provider UNIQUE (tenant_id, provider)
+);
+
+CREATE INDEX ix_tool_connections_tenant ON tool_connections(tenant_id);
+
+-- Enable Row Level Security
+ALTER TABLE tool_connections ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY tool_connections_tenant_isolation ON tool_connections
+    USING (tenant_id = current_setting('app.current_tenant_id', true)::UUID);
+
+COMMENT ON TABLE tool_connections IS
+    'Per-tenant, per-provider OAuth connection state. MASTER_BUILD_PLAN Part 5.1. '
+    'Tracks whether a provider is connected — actual tokens live in the Vault.';
+
+-- ============================================================================
+-- Chief AI Startup OS — Operational Store
+-- Migration 014: Create Tenant DEK Table (Envelope Encryption)
+-- Implements: STARTUP_OS_MASTER_BUILD_PLAN Part 4.4 / SPEC-GAPS SG-002
+--
+-- Per-tenant data encryption keys (wrapped by KMS KEK).
+-- The wrapped DEK itself is stored here, never the plaintext key.
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS tenant_dek (
+    tenant_id       UUID PRIMARY KEY REFERENCES tenants(id) ON DELETE CASCADE,
+    wrapped_dek     BYTEA NOT NULL,
+    kek_key_id      TEXT NOT NULL,    -- reference to the KMS key used to wrap
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    rotated_at      TIMESTAMPTZ
+);
+
+COMMENT ON TABLE tenant_dek IS
+    'Per-tenant wrapped data encryption keys. MASTER_BUILD_PLAN Part 4.4, SPEC-GAPS SG-002. '
+    'Wrapped DEK only — plaintext key never touches Postgres.';
+
 -- Chief AI Startup OS
 -- Demo Company Seed: "AIHealth Inc."
 -- Implements Phase 1.5: The "Real Data" Mandate
