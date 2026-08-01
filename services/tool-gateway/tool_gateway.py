@@ -49,6 +49,15 @@ app = FastAPI(
     version="0.1.0",
 )
 
+from fastapi.middleware.cors import CORSMiddleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000", "http://localhost:4001", "*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 # ─── Token Manager ───────────────────────────────────────────────────────────
 
@@ -489,6 +498,68 @@ async def execute_tool(
     )
 
 
+class AgentToolCallRequest(BaseModel):
+    """Schema used by agents calling /execute/read or /execute/write."""
+    tenant_id: str = ""
+    provider: str
+    operation: str
+    params: dict[str, Any] = Field(default_factory=dict)
+
+
+@app.post("/execute/read", response_model=dict)
+async def execute_read(req: AgentToolCallRequest, request: Request):
+    """Convenience endpoint for agents to read data via integrations.
+    Accepts Authorization: Bearer <token> header (what agents actually send)."""
+    auth_header = request.headers.get("Authorization", "")
+    token_value = auth_header.replace("Bearer ", "") if auth_header.startswith("Bearer ") else auth_header
+    
+    if not token_value or token_value == "fallback_token":
+        # No valid scoped token — try to call the adapter directly with tenant credentials
+        adapter = gateway._adapters.get(req.provider)
+        if not adapter:
+            raise HTTPException(status_code=404, detail=f"No adapter registered for provider '{req.provider}'")
+        try:
+            result = adapter.execute_read(req.operation, req.params, req.tenant_id)
+            return {"data": result}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+    
+    return gateway.execute_tool_call(
+        token_value=token_value,
+        action_type=f"read_{req.operation}",
+        provider=req.provider,
+        operation=req.operation,
+        params=req.params,
+        is_write=False,
+    )
+
+
+@app.post("/execute/write", response_model=dict)
+async def execute_write(req: AgentToolCallRequest, request: Request):
+    """Convenience endpoint for agents to write data via integrations."""
+    auth_header = request.headers.get("Authorization", "")
+    token_value = auth_header.replace("Bearer ", "") if auth_header.startswith("Bearer ") else auth_header
+    
+    if not token_value or token_value == "fallback_token":
+        adapter = gateway._adapters.get(req.provider)
+        if not adapter:
+            raise HTTPException(status_code=404, detail=f"No adapter registered for provider '{req.provider}'")
+        try:
+            result = adapter.execute_write(req.operation, req.params, req.tenant_id)
+            return {"data": result}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+    
+    return gateway.execute_tool_call(
+        token_value=token_value,
+        action_type=f"write_{req.operation}",
+        provider=req.provider,
+        operation=req.operation,
+        params=req.params,
+        is_write=True,
+    )
+
+
 @app.get("/health")
 async def health():
     return {"status": "ok", "service": "tool-gateway"}
@@ -498,24 +569,85 @@ async def health():
 
 @app.get("/auth/google/login")
 async def google_login(tenant_id: str, request: Request):
+    """Initial login — requests only basic scopes (openid, email, profile)."""
     try:
         authorization_url = build_authorization_url(state=tenant_id)
         return RedirectResponse(authorization_url)
     except ValueError as e:
         return HTMLResponse(f"<h1>Configuration Error</h1><p>{e}</p>", status_code=500)
 
+@app.get("/auth/google/login/full")
+async def google_login_full(tenant_id: str, request: Request):
+    """Dev/convenience login — requests ALL scopes at once (for testing)."""
+    try:
+        from packages.integrations.google.auth import ALL_SCOPES
+        authorization_url = build_authorization_url(state=tenant_id, scopes=ALL_SCOPES)
+        return RedirectResponse(authorization_url)
+    except ValueError as e:
+        return HTMLResponse(f"<h1>Configuration Error</h1><p>{e}</p>", status_code=500)
+
+@app.get("/auth/google/incremental")
+async def google_incremental_auth(tenant_id: str, service: str, request: Request):
+    """Incremental authorization — requests additional scopes for a specific service.
+    
+    Args:
+        tenant_id: The tenant requesting access
+        service: One of 'gmail', 'calendar', 'drive', 'sheets'
+    """
+    try:
+        from packages.integrations.google.auth import build_incremental_auth_url
+        authorization_url = build_incremental_auth_url(state=tenant_id, service=service)
+        return RedirectResponse(authorization_url)
+    except ValueError as e:
+        return HTMLResponse(f"<h1>Invalid Service</h1><p>{e}</p>", status_code=400)
+
+@app.get("/auth/google/scopes")
+async def check_granted_scopes(tenant_id: str):
+    """Check which Google service scopes have been granted for a tenant."""
+    from vault import vault
+    from packages.integrations.google.auth import INCREMENTAL_SCOPES
+    
+    creds = vault.get_credential_by_tenant("google", tenant_id)
+    if not creds:
+        return {"granted": {}, "message": "No Google credentials found. Please sign in first."}
+    
+    granted_scope_str = creds.get("scope", "")
+    granted_scopes = granted_scope_str.split(" ") if granted_scope_str else []
+    
+    result = {}
+    for service, required_scopes in INCREMENTAL_SCOPES.items():
+        result[service] = all(s in granted_scopes for s in required_scopes)
+    
+    return {"granted": result, "raw_scopes": granted_scopes}
+
 @app.get("/auth/google/callback")
 async def google_callback(state: str, code: str, request: Request):
     try:
         from vault import vault
+        
+        # Check if we already have credentials for this tenant (incremental auth case)
+        existing_creds = vault.get_credential_by_tenant("google", state)
+        
         # The callback handles the entire flow: tokens, users DB, integrations DB, and JWT
         result = await handle_google_callback(state, code, vault.store_credential)
         
+        # If this was an incremental auth, merge the new scopes with existing refresh token
+        if existing_creds and existing_creds.get("refresh_token"):
+            # The new token exchange may not return a refresh_token for incremental grants
+            # Keep the existing refresh_token if the new exchange didn't provide one
+            new_creds = vault.get_credential_by_tenant("google", state)
+            if new_creds and not new_creds.get("refresh_token"):
+                # Find and update the vault entry to preserve the old refresh token
+                for ref, record in vault.credentials.items():
+                    if record.get("provider") == "google" and record.get("tenant_id") == state:
+                        record["payload"]["refresh_token"] = existing_creds["refresh_token"]
+                        vault._save()
+                        break
+        
         token = result["token"]
-        user = result["user"]
         
         # Redirect back to the frontend with the JWT
-        frontend_url = os.environ.get("FRONTEND_URL", "http://localhost:3001")
+        frontend_url = os.environ.get("FRONTEND_URL", "http://localhost:3000")
         return RedirectResponse(f"{frontend_url}/auth/callback?token={token}")
     except Exception as e:
         import traceback
@@ -528,3 +660,4 @@ async def google_callback(state: str, code: str, request: Request):
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8002)
+

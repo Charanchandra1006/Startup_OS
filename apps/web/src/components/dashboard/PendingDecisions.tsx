@@ -4,46 +4,7 @@ import React, { useState, useEffect } from "react";
 import { Check, Eye, AlertTriangle, Clock, Sparkles, X, Plus, Zap, ArrowRight, RefreshCw } from "lucide-react";
 
 export function PendingDecisions() {
-  const defaultDecisions = [
-    {
-      id: "dec-1",
-      title: "Approve Hiring Budget ($150k Q3 Engineering)",
-      department: "Engineering",
-      deadline: "Today, 5:00 PM",
-      priority: "High",
-      description: "Hiring Agent recommends onboarding 2 Senior Backend Engineers immediately to meet Series A roadmap deliverables. Current budget surplus covers 100% of compensation.",
-      impact: "Extends product sprint velocity by 40% without shortening runway below 36 months.",
-    },
-    {
-      id: "dec-2",
-      title: "Approve Marketing Spend ($50k Growth Campaign)",
-      department: "Growth",
-      deadline: "Tomorrow",
-      priority: "Medium",
-      description: "Marketing Agent requests reallocation of Q2 under-spend into targeted LinkedIn and developer community ads. Predicted CAC is $140 with 4.2x LTV.",
-      impact: "Projected to generate ~350 qualified enterprise trial signups in 30 days.",
-    },
-    {
-      id: "dec-3",
-      title: "Investor Proposal Waiting (Alpha Ventures Term Sheet)",
-      department: "Finance",
-      deadline: "In 2 hours",
-      priority: "Critical",
-      description: "Alpha Ventures has submitted a revised $12M Series A term sheet at a $65M pre-money valuation. Legal and Finance agents have audited all governance clauses.",
-      impact: "Secures 4 years of operating capital; standard pro-rata and board seat terms.",
-    },
-    {
-      id: "dec-4",
-      title: "Legal Contract Pending (Enterprise MSA with CloudScale)",
-      department: "Legal",
-      deadline: "Friday",
-      priority: "High",
-      description: "CloudScale Inc. ($180k ARR contract) requested redlines on liability indemnification. Legal Agent generated a mutual compromise clause approved by external counsel.",
-      impact: "Unblocks immediate revenue recognition for Q3 enterprise quota.",
-    },
-  ];
-
-  const [decisions, setDecisions] = useState<any[]>(defaultDecisions);
+  const [decisions, setDecisions] = useState<any[]>([]);
   const [selectedDecision, setSelectedDecision] = useState<any>(null);
   const [showQuickModal, setShowQuickModal] = useState(false);
   const [quickTitle, setQuickTitle] = useState("");
@@ -57,10 +18,7 @@ export function PendingDecisions() {
       if (stored) {
         const genTasks = JSON.parse(stored);
         if (Array.isArray(genTasks) && genTasks.length > 0) {
-          // Merge generated tasks at the top without duplicates
-          const existingIds = new Set(defaultDecisions.map(d => d.id));
-          const newOnly = genTasks.filter((t: any) => !existingIds.has(t.id));
-          setDecisions([...genTasks, ...defaultDecisions.filter(d => !genTasks.some((gt: any) => gt.id === d.id))]);
+          setDecisions([...genTasks]);
         }
       }
     } catch (err) {

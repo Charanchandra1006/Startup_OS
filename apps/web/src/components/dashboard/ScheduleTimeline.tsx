@@ -6,131 +6,86 @@ import { Calendar, Clock, MapPin, Users, Sparkles, CheckCircle2, AlertCircle, Ar
 export function ScheduleTimeline() {
   const [selectedDate, setSelectedDate] = useState("Today, Jul 5");
 
-  const defaultEvents = [
-    {
-      id: "evt-1",
-      time: "09:00 AM",
-      title: "Executive Standup & Autonomous Agent Sync",
-      type: "Internal",
-      duration: "30 min",
-      attendees: ["Charan Chandra", "AI Orchestrator", "Dept Agents"],
-      location: "Google Meet / Voice Command",
-      status: "Completed",
-      briefing: "AI CFO reported 12% revenue growth and 40.2 mo runway. Marketing Agent deployed Q3 growth campaigns.",
-    },
-    {
-      id: "evt-2",
-      time: "11:30 AM",
-      title: "Series A Term Sheet Deep Dive",
-      type: "Investor",
-      duration: "45 min",
-      attendees: ["Charan Chandra", "Marcus Vance (Alpha Ventures)", "AI Legal Agent"],
-      location: "Google Meet Video Call",
-      status: "In Progress",
-      briefing: "Negotiating $65M pre-money valuation terms and board governance clauses. AI Legal has prepared redline fallbacks.",
-    },
-    {
-      id: "evt-3",
-      time: "02:00 PM",
-      title: "Enterprise Onboarding Kickoff — CloudScale Inc.",
-      type: "Client",
-      duration: "60 min",
-      attendees: ["Sarah Jenkins (VP Eng)", "Charan Chandra", "AI Ops Agent"],
-      location: "Google Meet",
-      status: "Upcoming",
-      briefing: "Finalizing 500-seat API provisioning and dedicated Slack connect channel. Contract value: $180,000 ARR.",
-    },
-    {
-      id: "evt-4",
-      time: "04:30 PM",
-      title: "Google Workspace & GCP Infrastructure Review",
-      type: "Engineering",
-      duration: "45 min",
-      attendees: ["Charan Chandra", "David K. (Board)", "AI Ops Agent"],
-      location: "Google Meet / Hybrid",
-      status: "Upcoming",
-      briefing: "Reviewing compute budget and API gateway allocation for charanchandra1006@gmail.com.",
-    },
-  ];
-
-  const [events, setEvents] = useState<any[]>(defaultEvents);
+  const [events, setEvents] = useState<any[]>([]);
   const [selectedEvent, setSelectedEvent] = useState<any>(null);
   const [isSyncing, setIsSyncing] = useState(false);
-  const [showGoogleModal, setShowGoogleModal] = useState(false);
-  const [googleToken, setGoogleToken] = useState("");
-  const [syncStatus, setSyncStatus] = useState("Connected to Workspace (charanchandra1006@gmail.com)");
+  const [syncStatus, setSyncStatus] = useState("API Connection Required");
   const [isRealApiConnected, setIsRealApiConnected] = useState(false);
 
   useEffect(() => {
-    const savedToken = localStorage.getItem("google_oauth_token");
-    if (savedToken) {
-      setGoogleToken(savedToken);
-      setIsRealApiConnected(true);
-      fetchRealCalendarData(savedToken);
-    }
+    checkGoogleConnection();
   }, []);
+
+  const checkGoogleConnection = async () => {
+    try {
+      const chiefToken = localStorage.getItem("chief_token");
+      if (!chiefToken) return;
+
+      const payload = JSON.parse(atob(chiefToken.split('.')[1]));
+      const tenantId = payload.tenant_id;
+
+      // Check with gateway if Calendar scopes are granted
+      const res = await fetch(`http://localhost:8002/auth/google/scopes?tenant_id=${tenantId}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.granted && data.granted.calendar) {
+          setIsRealApiConnected(true);
+          setSyncStatus("Connected to Workspace via OAuth");
+          fetchRealCalendarData(chiefToken);
+        } else {
+          setIsRealApiConnected(false);
+          setSyncStatus("Calendar API disconnected. Connection required.");
+        }
+      }
+    } catch (e) {
+      console.warn("Failed to check Google scopes", e);
+    }
+  };
 
   const fetchRealCalendarData = async (token: string) => {
     setIsSyncing(true);
-    setSyncStatus("Fetching live events from Google Calendar API...");
+    setSyncStatus("Fetching live events via Gateway...");
     try {
-      // Use server-side proxy to avoid CORS restrictions
-      const response = await fetch("/api/google/calendar?maxResults=8", {
+      const response = await fetch("http://localhost:8002/execute/read", {
+        method: "POST",
         headers: {
-          Authorization: `Bearer ${token.trim()}`,
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
         },
+        body: JSON.stringify({
+          provider: "google",
+          operation: "get_upcoming_events",
+          params: { max_results: 8 }
+        })
       });
 
       const data = await response.json();
-
       if (!response.ok) {
-        const detail = data?.detail?.error?.message || data?.error || "Token may be expired or missing required scopes.";
-        setSyncStatus(`Connection failed: ${detail}`);
+        setSyncStatus(`Connection failed: ${data.detail || "Unknown error"}`);
         setIsRealApiConnected(false);
-        setIsSyncing(false);
         return;
       }
 
-      if (data.events && data.events.length > 0) {
-        setEvents(data.events);
-        setIsRealApiConnected(true);
-        setSyncStatus(`Live Google Calendar API Active — ${data.events.length} events loaded (charanchandra1006@gmail.com)`);
-      } else {
-        setSyncStatus("Calendar API connected. No upcoming events found.");
-        setIsRealApiConnected(true);
+      if (data.data && data.data.events) {
+        setEvents(data.data.events);
+        setSyncStatus("Live Calendar Connected");
       }
     } catch (err: any) {
-      console.error("Calendar proxy error:", err);
-      setIsRealApiConnected(false);
-      setSyncStatus(`Error: ${err.message || "Could not reach Calendar proxy. Check console."}`);
+      setSyncStatus(`Error: ${err.message}`);
     } finally {
       setIsSyncing(false);
     }
   };
 
   const handleSyncNow = () => {
-    const token = localStorage.getItem("google_oauth_token") || googleToken;
-    if (token && token.trim().length > 10) {
-      fetchRealCalendarData(token.trim());
-    } else {
-      setSyncStatus("No OAuth token saved. Click 'API Settings' to connect your Calendar.");
-      setShowGoogleModal(true);
-    }
-  };
-
-  const handleSaveToken = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (googleToken.trim()) {
-      localStorage.setItem("google_oauth_token", googleToken.trim());
-      setIsRealApiConnected(true);
-      setShowGoogleModal(false);
-      fetchRealCalendarData(googleToken.trim());
-    } else {
-      localStorage.removeItem("google_oauth_token");
-      setIsRealApiConnected(false);
-      setShowGoogleModal(false);
-      setEvents(defaultEvents);
-      setSyncStatus("Connected to Workspace (charanchandra1006@gmail.com)");
+    try {
+      const token = localStorage.getItem("chief_token");
+      if (!token) throw new Error("No chief_token found");
+      const payload = JSON.parse(atob(token.split('.')[1]));
+      const tenantId = payload.tenant_id;
+      window.location.href = `http://localhost:8002/auth/google/incremental?tenant_id=${tenantId}&service=calendar`;
+    } catch (e) {
+      alert("Please log in first to connect Calendar.");
     }
   };
 
@@ -165,11 +120,11 @@ export function ScheduleTimeline() {
             <span>{isSyncing ? "Syncing..." : "Sync Calendar"}</span>
           </button>
           <button
-            onClick={() => setShowGoogleModal(true)}
+            onClick={handleSyncNow}
             className="px-3 py-1.5 rounded-lg bg-black hover:bg-neutral-800 text-white font-bold text-xs flex items-center gap-1.5 shadow-sm transition-colors cursor-pointer"
           >
             <Key className="h-3.5 w-3.5" />
-            <span>API Settings</span>
+            <span>Connect Calendar</span>
           </button>
         </div>
       </div>
@@ -192,6 +147,13 @@ export function ScheduleTimeline() {
 
       {/* Timeline List */}
       <div className="space-y-3 relative before:absolute before:inset-0 before:left-3.5 before:w-0.5 before:bg-neutral-200">
+        {events.length === 0 && (
+          <div className="p-10 rounded-xl bg-neutral-50 border border-dashed border-neutral-300 text-center space-y-2 ml-8">
+            <Calendar className="h-5 w-5 text-neutral-400 mx-auto" />
+            <p className="text-xs font-medium text-neutral-600">No events found</p>
+            <p className="text-[11px] text-neutral-400">Click &quot;Connect Calendar&quot; to securely authorize your calendar via OAuth.</p>
+          </div>
+        )}
         {events.map((evt) => {
           const isDone = evt.status === "Completed";
           const isCurrent = evt.status === "In Progress";
@@ -254,74 +216,6 @@ export function ScheduleTimeline() {
           );
         })}
       </div>
-
-      {/* Google Calendar API Settings Modal */}
-      {showGoogleModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
-          <div className="w-full max-w-lg rounded-2xl bg-white border border-neutral-200 shadow-2xl p-6 relative overflow-hidden animate-in zoom-in-95 duration-200 space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-neutral-200">
-              <div className="flex items-center gap-2">
-                <Key className="h-4 w-4 text-black" />
-                <h4 className="text-sm font-bold text-black">Google Calendar API Connector</h4>
-              </div>
-              <button
-                onClick={() => setShowGoogleModal(false)}
-                className="p-1 rounded-lg text-neutral-400 hover:text-black hover:bg-neutral-100 transition-colors"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-
-            <form onSubmit={handleSaveToken} className="space-y-4">
-              <div className="p-3.5 rounded-xl bg-neutral-50 border border-neutral-200 text-xs space-y-1">
-                <span className="font-bold text-black block">Connected Account: charanchandra1006@gmail.com</span>
-                <p className="text-neutral-600 leading-relaxed">
-                  You are currently synced to your Google Workspace calendar schedule. To pull real-time meetings directly from Google Calendar servers, paste your OAuth Bearer Token below.
-                </p>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-black mb-1 font-mono">
-                  Google OAuth Access Token (e.g. ya29.a0...)
-                </label>
-                <input
-                  type="password"
-                  value={googleToken}
-                  onChange={(e) => setGoogleToken(e.target.value)}
-                  placeholder="Paste Google OAuth Token or leave blank for default sync..."
-                  className="w-full p-3 rounded-xl bg-neutral-50 border border-neutral-300 text-xs text-black font-mono focus:outline-none focus:border-black transition-colors"
-                />
-                <p className="text-[10px] text-neutral-400 mt-1 font-mono">
-                  Tokens can be generated instantly from Google OAuth Playground with scope: https://www.googleapis.com/auth/calendar.readonly
-                </p>
-              </div>
-
-              <div className="pt-4 border-t border-neutral-200 flex items-center justify-end gap-2.5">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setGoogleToken("");
-                    localStorage.removeItem("google_oauth_token");
-                    setIsRealApiConnected(false);
-                    setEvents(defaultEvents);
-                    setShowGoogleModal(false);
-                  }}
-                  className="px-3.5 py-2 rounded-xl bg-neutral-100 hover:bg-neutral-200 text-neutral-700 text-xs font-medium transition-colors cursor-pointer border border-neutral-300"
-                >
-                  Reset to Default Sync
-                </button>
-                <button
-                  type="submit"
-                  className="px-5 py-2 rounded-xl bg-black hover:bg-neutral-800 text-white font-bold text-xs shadow-sm flex items-center gap-1.5 transition-colors cursor-pointer"
-                >
-                  <Check className="h-3.5 w-3.5" />
-                  <span>Save & Connect API</span>
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
 
       {/* Event Details Modal */}
       {selectedEvent && (

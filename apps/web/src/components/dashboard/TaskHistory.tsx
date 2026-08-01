@@ -7,64 +7,7 @@ export function TaskHistory() {
   const [filter, setFilter] = useState("All");
   const [searchQuery, setSearchQuery] = useState("");
 
-  const defaultTasks = [
-    {
-      id: "tsk-1",
-      title: "Reconcile Stripe MRR with QuickBooks Q2 ledger",
-      agent: "Finance Agent",
-      status: "Completed",
-      date: "Today, 10:15 AM",
-      duration: "1m 12s",
-      summary: "Verified $3,420,000 MRR (+18.4% MoM). Operating cash surplus confirmed at +$450,200.",
-    },
-    {
-      id: "tsk-2",
-      title: "Scan and benchmark Series A SaaS valuation multiples",
-      agent: "Research Agent",
-      status: "Completed",
-      date: "Today, 09:45 AM",
-      duration: "45s",
-      summary: "Aggregated 14 recent B2B AI SaaS Series A rounds. Median revenue multiple confirmed at 19.2x ARR.",
-    },
-    {
-      id: "tsk-3",
-      title: "Index and summarize Alpha Ventures term sheet emails",
-      agent: "Email Agent",
-      status: "Completed",
-      date: "Today, 08:30 AM",
-      duration: "18s",
-      summary: "Extracted key governance terms: $12M investment, $65M pre-money valuation, 1 board seat, standard pro-rata.",
-    },
-    {
-      id: "tsk-4",
-      title: "Model cohort LTV/CAC velocity for Q3 enterprise expansions",
-      agent: "Analytics Agent",
-      status: "Completed",
-      date: "Yesterday, 04:20 PM",
-      duration: "2m 04s",
-      summary: "LTV/CAC ratio confirmed at 4.8x. Enterprise net retention rate tracking at 98.4%.",
-    },
-    {
-      id: "tsk-5",
-      title: "Simulate runway impacts of onboarding 2 Senior Backend Engineers",
-      agent: "Operations Agent",
-      status: "Completed",
-      date: "Yesterday, 02:15 PM",
-      duration: "32s",
-      summary: "Confirmed runway remains above 36 months (40.2 mo current) after factoring in $300k annual salary commitment.",
-    },
-    {
-      id: "tsk-6",
-      title: "Draft mutual liability compromise clause for CloudScale MSA",
-      agent: "Legal Agent",
-      status: "Completed",
-      date: "Jul 3, 11:00 AM",
-      duration: "55s",
-      summary: "Generated indemnification redlines capped at 2x annual contract value ($360k total liability cap). Approved by client.",
-    },
-  ];
-
-  const [tasks, setTasks] = useState<any[]>(defaultTasks);
+  const [tasks, setTasks] = useState<any[]>([]);
 
   const loadCompletedTasks = () => {
     try {
@@ -73,7 +16,6 @@ export function TaskHistory() {
         const compTasks = JSON.parse(stored);
         if (Array.isArray(compTasks) && compTasks.length > 0) {
           // Merge completed tasks at top
-          const existingIds = new Set(defaultTasks.map(t => t.id));
           const formatted = compTasks.map((ct: any) => ({
             id: ct.id || `comp-${Math.random()}`,
             title: ct.title || "Executed Autonomous Action",
@@ -83,7 +25,7 @@ export function TaskHistory() {
             duration: ct.duration || "1.4s",
             summary: ct.details || ct.summary || "Verified and committed to company ledger by autonomous agent.",
           }));
-          setTasks([...formatted, ...defaultTasks.filter(t => !formatted.some(f => f.id === t.id))]);
+          setTasks([...formatted]);
         }
       }
     } catch (err) {
@@ -173,6 +115,13 @@ export function TaskHistory() {
 
       {/* Tasks List */}
       <div className="space-y-2.5">
+        {filteredTasks.length === 0 && (
+          <div className="p-10 rounded-xl bg-neutral-50 border border-dashed border-neutral-300 text-center space-y-2">
+            <CheckSquare className="h-5 w-5 text-neutral-400 mx-auto" />
+            <p className="text-xs font-medium text-neutral-600">No tasks executed yet</p>
+            <p className="text-[11px] text-neutral-400">Run a goal in the Command Center to see agent execution history.</p>
+          </div>
+        )}
         {filteredTasks.map((t) => {
           const isExec = t.id?.toString().startsWith("exec-") || t.title.startsWith("Executed:");
           return (

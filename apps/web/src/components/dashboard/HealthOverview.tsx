@@ -18,84 +18,75 @@ export function HealthOverview() {
   const metrics = [
     {
       label: "Today's Revenue",
-      value: "$124,500",
-      change: "+12.0%",
+      value: "—",
+      change: "—",
       isPositive: true,
       icon: DollarSign,
-      subtext: "vs yesterday ($111,160)",
-      chart: [40, 55, 45, 60, 75, 85, 100],
-    },
-    {
-      label: "Yesterday's Revenue",
-      value: "$111,160",
-      change: "+8.4%",
-      isPositive: true,
-      icon: DollarSign,
-      subtext: "target exceeded by $6,160",
-      chart: [35, 40, 50, 60, 70, 80, 85],
-    },
-    {
-      label: "Revenue Growth %",
-      value: "+12.0%",
-      change: "+2.5%",
-      isPositive: true,
-      icon: TrendingUp,
-      subtext: "MoM velocity accelerating",
-      chart: [50, 52, 58, 65, 72, 80, 95],
+      subtext: "Connect finance data to track",
+      chart: [0, 0, 0, 0, 0, 0, 0],
     },
     {
       label: "Monthly Revenue (MRR)",
-      value: "$3,420,000",
-      change: "+18.4%",
+      value: "—",
+      change: "—",
       isPositive: true,
       icon: Activity,
-      subtext: "Series A ARR milestone cleared",
-      chart: [60, 65, 70, 75, 82, 90, 100],
+      subtext: "Connect finance data to track",
+      chart: [0, 0, 0, 0, 0, 0, 0],
+    },
+    {
+      label: "Revenue Growth %",
+      value: "—",
+      change: "—",
+      isPositive: true,
+      icon: TrendingUp,
+      subtext: "Calculated after data connected",
+      chart: [0, 0, 0, 0, 0, 0, 0],
     },
     {
       label: "Net Cash Flow",
-      value: "+$450,200",
-      change: "+5.1%",
+      value: "—",
+      change: "—",
       isPositive: true,
       icon: DollarSign,
-      subtext: "operating surplus positive",
-      chart: [45, 50, 48, 60, 70, 75, 90],
+      subtext: "Connect finance data to track",
+      chart: [0, 0, 0, 0, 0, 0, 0],
     },
     {
       label: "Monthly Burn Rate",
-      value: "$85,000",
-      change: "-3.2%",
+      value: "—",
+      change: "—",
       isPositive: true,
       icon: Flame,
-      subtext: "40.2 mo runway remaining",
-      chart: [90, 85, 88, 80, 75, 72, 65],
+      subtext: "Connect finance data to track",
+      chart: [0, 0, 0, 0, 0, 0, 0],
     },
     {
-      label: "Active Enterprise Customers",
-      value: "1,420",
-      change: "+48 this wk",
+      label: "Active Customers",
+      value: "—",
+      change: "—",
       isPositive: true,
       icon: Users,
-      subtext: "98.4% retention rate",
-      chart: [50, 60, 65, 75, 80, 90, 100],
+      subtext: "Connect CRM to track",
+      chart: [0, 0, 0, 0, 0, 0, 0],
     },
     {
       label: "Conversion Rate",
-      value: "4.8%",
-      change: "+0.6%",
+      value: "—",
+      change: "—",
       isPositive: true,
       icon: Percent,
-      subtext: "funnel optimization active",
-      chart: [30, 40, 45, 55, 65, 75, 85],
+      subtext: "Connect analytics to track",
+      chart: [0, 0, 0, 0, 0, 0, 0],
     },
     {
       label: "AI Health Score",
-      value: "92/100",
-      change: "Optimal",
+      value: "—",
+      change: "—",
       isPositive: true,
       icon: Sparkles,
       subtext: "active agents synchronized",
-      chart: [70, 75, 80, 85, 88, 90, 92],
+      chart: [0, 0, 0, 0, 0, 0, 0],
     },
   ];
 
@@ -109,11 +100,11 @@ export function HealthOverview() {
               Executive Health Overview
             </span>
             <span className="px-2 py-0.2 rounded bg-neutral-100 border border-neutral-300 text-neutral-800 text-[10px] font-mono font-bold">
-              REAL-TIME
+              LIVE
             </span>
           </div>
           <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-black">
-            VisionAI Technologies <span className="text-neutral-400 font-normal">— Series A Dashboard</span>
+            Startup OS <span className="text-neutral-400 font-normal">— Dashboard</span>
           </h2>
         </div>
 
@@ -126,7 +117,7 @@ export function HealthOverview() {
                 Overall Company Status
               </div>
               <div className="text-xs font-bold tracking-wide flex items-center gap-1.5 mt-0.5 text-black">
-                <span>HEALTHY</span>
+                <span>OPERATIONAL</span>
                 <span className="h-1.5 w-1.5 rounded-full bg-black" />
               </div>
             </div>

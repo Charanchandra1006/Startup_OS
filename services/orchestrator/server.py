@@ -30,10 +30,14 @@ async def startup_event():
     global db_pool
     db_url = os.environ.get("DATABASE_URL")
     if db_url:
+        db_url = db_url.strip()
         db_url = db_url.replace("postgresql+asyncpg://", "postgresql://")
-        if "?" in db_url: db_url = db_url.split("?")[0]
+        if "?" in db_url:
+            db_url = db_url.split("?")[0]
+            
+        # Neon DB requires SSL, use native string parameter
         try:
-            db_pool = await asyncpg.create_pool(db_url)
+            db_pool = await asyncpg.create_pool(db_url, ssl='require')
             logger.info("Connected to Neon DB successfully.")
         except Exception as e:
             logger.error(f"Failed to connect to Neon DB: {e}")

@@ -4,32 +4,9 @@ import React from "react";
 import { Sparkles, TrendingUp, Mail, Zap, AlertCircle, ArrowRight } from "lucide-react";
 
 export function ExecutiveSummary() {
-  const insights = [
-    {
-      id: 1,
-      text: "Revenue increased by 12% compared to yesterday, driven by enterprise Series A expansions.",
-      category: "Growth",
-      icon: TrendingUp,
-    },
-    {
-      id: 2,
-      text: "Investor Alpha Ventures replied to yesterday's proposal with favorable valuation terms.",
-      category: "Fundraising",
-      icon: Mail,
-    },
-    {
-      id: 3,
-      text: "Marketing campaign CTR improved by 7% following the autonomous creative refresh.",
-      category: "Marketing",
-      icon: Zap,
-    },
-    {
-      id: 4,
-      text: "Customer churn slightly increased in SMB tier (+0.3%); proactive retention workflow dispatched.",
-      category: "Retention",
-      icon: AlertCircle,
-    },
-  ];
+  // These will be populated from the real orchestrator API in production.
+  // For now, show an empty state that tells the user to run a goal.
+  const insights: { id: number; text: string; category: string; icon: any }[] = [];
 
   return (
     <section className="p-6 rounded-2xl bg-white border border-neutral-200 shadow-sm relative overflow-hidden">
@@ -55,6 +32,13 @@ export function ExecutiveSummary() {
       </div>
 
       {/* Insights List */}
+      {insights.length === 0 ? (
+        <div className="p-8 rounded-xl bg-neutral-50 border border-dashed border-neutral-300 text-center space-y-2">
+          <Sparkles className="h-5 w-5 text-neutral-400 mx-auto" />
+          <p className="text-xs font-medium text-neutral-600">No AI insights generated yet</p>
+          <p className="text-[11px] text-neutral-400">Use the Command Center to submit a goal — your agents will generate real-time insights here.</p>
+        </div>
+      ) : (
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3 relative z-10">
         {insights.map((item) => {
           const Icon = item.icon;
@@ -80,6 +64,7 @@ export function ExecutiveSummary() {
           );
         })}
       </div>
+      )}
 
       <div className="mt-5 pt-4 border-t border-neutral-200 flex items-center justify-between text-xs text-neutral-500 relative z-10">
         <span className="font-mono text-[11px] text-neutral-500">All departmental data streams reconciled.</span>

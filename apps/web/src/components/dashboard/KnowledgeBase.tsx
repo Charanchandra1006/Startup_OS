@@ -7,48 +7,7 @@ export function KnowledgeBase() {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("All");
 
-  const [files, setFiles] = useState([
-    {
-      id: "kb-1",
-      name: "Series A Term Sheet — Alpha Ventures (Revised).pdf",
-      category: "Legal & Term Sheets",
-      size: "2.4 MB",
-      date: "Today, 11:20 AM",
-      indexed: true,
-      summary: "Contains 48-hour exclusivity clause, $12M equity investment at $65M pre-money valuation, 1 board seat, and standard pro-rata investor rights.",
-      content: "ALPHA VENTURES — SERIES A TERM SHEET (CONFIDENTIAL)\n\nIssuer: VisionAI Technologies Inc.\nInvestment Amount: $12,000,000\nPre-Money Valuation: $65,000,000\nPost-Money Valuation: $77,000,000\n\n1. Liquidation Preference: 1x non-participating preferred stock.\n2. Board of Directors: 3 seats total (1 Founder, 1 Alpha Ventures, 1 Independent).\n3. Pro-Rata Rights: Major investors ($1M+) retain pro-rata rights in subsequent financing rounds.\n4. Exclusivity: 48-hour exclusivity window from date of execution for legal due diligence.\n\n[End of Memo]",
-    },
-    {
-      id: "kb-2",
-      name: "Q2 QuickBooks Audit & Stripe Revenue Roster.xlsx",
-      category: "Finance & Ledgers",
-      size: "4.1 MB",
-      date: "Yesterday",
-      indexed: true,
-      summary: "Reconciles $124,500 daily revenue, $3.42M ARR, and confirms a net operating surplus of +$450,200 with 40.2 mo runway.",
-      content: "FINANCE AGENT — Q2 REVENUE & EXPENSE RECONCILIATION\n\nStripe Gross Volume: $3,480,120\nRefunds & Chargebacks: -$60,120\nNet Monthly Revenue (MRR): $3,420,000\n\nOperating Expenses:\n- Cloud & GPU Compute (AWS / GCP / Neon): $42,100\n- Payroll & Contractor Stipends: $28,900\n- Legal & Corporate Governance: $14,000\n\nNet Cash Surplus: +$450,200\nProjected Runway at Current Burn ($85k/mo): 40.2 Months.",
-    },
-    {
-      id: "kb-3",
-      name: "CloudScale Enterprise MSA — Liability Compromise.docx",
-      category: "Contracts & Agreements",
-      size: "1.8 MB",
-      date: "Jul 3, 2026",
-      indexed: true,
-      summary: "Mutual liability indemnification capped at 2x annual contract value ($360k total cap). Approved by external legal counsel.",
-      content: "MUTUAL SERVICES AGREEMENT (MSA) — CLOUDSCALE INC.\n\nSection 8: Indemnification & Limitation of Liability\n\n8.1 Liability Cap: In no event shall either party's aggregate liability arising out of or related to this agreement exceed two times (2x) the total fees paid or payable by Client in the twelve (12) months preceding the claim.\n\n8.2 Exception for Data Breach: The limitation in 8.1 shall not apply to breaches of zero-trust encryption protocols or intentional gross negligence.\n\nApproved by AI Legal Agent and Sarah Jenkins (CloudScale VP Eng).",
-    },
-    {
-      id: "kb-4",
-      name: "Q3 Product Roadmap & Series A Engineering Budget.pdf",
-      category: "Strategy & Roadmaps",
-      size: "3.2 MB",
-      date: "Jul 1, 2026",
-      indexed: true,
-      summary: "Detailing budget allocation for onboarding 2 Senior Backend Engineers ($150k Q3 budget). Accelerates sprint velocity by 40%.",
-      content: "VISIONAI TECHNOLOGIES — Q3 PRODUCT ROADMAP & HIRING PLAN\n\nStrategic Objective: Deliver real-time multi-agent orchestration latency under 500ms before general availability.\n\nResource Requirement: Onboard 2 Senior Rust / Python Backend Engineers.\nBudget Allocation: $150,000 Q3 compensation surplus.\n\nImpact Assessment:\n- Eliminates bottleneck in WebSocket streaming gateway.\n- Extends sprint velocity by 40%.\n- Runway impact: Minimal (reduces runway from 40.2 mo to 36.4 mo).",
-    },
-  ]);
+  const [files, setFiles] = useState<any[]>([]);
 
   const [selectedFile, setSelectedFile] = useState<any>(null);
   const [isUploading, setIsUploading] = useState(false);
@@ -152,6 +111,13 @@ export function KnowledgeBase() {
 
       {/* Documents Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        {filteredFiles.length === 0 && (
+          <div className="col-span-full p-10 rounded-xl bg-neutral-50 border border-dashed border-neutral-300 text-center space-y-2">
+            <BookOpen className="h-5 w-5 text-neutral-400 mx-auto" />
+            <p className="text-xs font-medium text-neutral-600">No documents found</p>
+            <p className="text-[11px] text-neutral-400">Connect Google Drive to index documents or upload a file directly.</p>
+          </div>
+        )}
         {filteredFiles.map((file) => (
           <div
             key={file.id}

@@ -7,184 +7,89 @@ export function ImportantEmails() {
   const [activeTab, setActiveTab] = useState("All");
   const categories = ["All", "Investors", "Clients", "Board Members", "Finance", "Legal", "Partnerships"];
 
-  const defaultEmails = [
-    {
-      id: "eml-1",
-      sender: "Marcus Vance",
-      senderEmail: "marcus@alphaventures.vc",
-      role: "Managing Partner, Alpha Ventures",
-      subject: "Series A Term Sheet — VisionAI Technologies",
-      category: "Investors",
-      time: "14m ago",
-      priority: "Critical",
-      tldr: "Submitted revised $12M Series A term sheet at $65M pre-money valuation. Requested 48-hour exclusivity window for legal review.",
-      body: "Charan,\n\nFollowing up on yesterday's partner sync. We were extremely impressed with VisionAI's autonomous agent orchestration demo and your $3.4M ARR trajectory.\n\nAttached is our formal term sheet for a $12M Series A investment at a $65M pre-money valuation. We've agreed to standard pro-rata rights and a single board seat.\n\nPlease let us know if your legal team can review within 48 hours.\n\nBest,\nMarcus Vance",
-      read: false,
-    },
-    {
-      id: "eml-2",
-      sender: "Sarah Jenkins",
-      senderEmail: "s.jenkins@cloudscale.enterprise",
-      role: "VP of Engineering, CloudScale Inc.",
-      subject: "Enterprise MSA Approval & Onboarding Timeline",
-      category: "Clients",
-      time: "2h ago",
-      priority: "High",
-      tldr: "Approved the mutual indemnification clause for 500 enterprise seats ($180k ARR). Requesting dedicated Slack channel setup for Monday kickoff.",
-      body: "Hi Charan & Team,\n\nOur legal counsel has signed off on the revised mutual liability cap. We are ready to execute the annual contract ($180,000 ARR).\n\nCould your Operations Agent spin up our shared Slack connect channel and provision API keys by Monday morning?\n\nExcited to partner,\nSarah",
-      read: false,
-    },
-    {
-      id: "eml-3",
-      sender: "David K.",
-      senderEmail: "david@visionai.tech",
-      role: "Board Member / Seed Lead",
-      subject: "Q3 Burn Rate Audit & Series A Hiring Plan",
-      category: "Board Members",
-      time: "Yesterday",
-      priority: "Medium",
-      tldr: "Reviewed AI CFO's runway simulation. Confirmed alignment on onboarding 2 Senior Backend Engineers immediately.",
-      body: "Charan,\n\nI reviewed the automated QuickBooks reconciliation sent by your Finance Agent. A 40.2 month runway is exceptional given our revenue velocity.\n\nYou have my full sign-off to approve the engineering budget for the two senior hires. Let's close Alpha Ventures this week.\n\nBest,\nDavid",
-      read: true,
-    },
-    {
-      id: "eml-4",
-      sender: "Google Cloud Platform",
-      senderEmail: "no-reply@google.com",
-      role: "Infrastructure Roster & Security Sync",
-      subject: "Google Workspace & API Gateway Billing Audit",
-      category: "Finance",
-      time: "2d ago",
-      priority: "High",
-      tldr: "Monthly Google Cloud & Workspace invoice for charanchandra1006@gmail.com verified and reconciled by AI CFO.",
-      body: "Hello Charan,\n\nYour Google Cloud & Workspace billing summary for account charanchandra1006@gmail.com is ready for review. All API gateway endpoints and Neon DB compute nodes remain well within your Q3 operating budget.\n\nRegards,\nGoogle Cloud Billing Team",
-      read: true,
-    },
-  ];
-
-  const [emails, setEmails] = useState<any[]>(defaultEmails);
+  const [emails, setEmails] = useState<any[]>([]);
   const [selectedEmail, setSelectedEmail] = useState<any>(null);
   const [replyDraft, setReplyDraft] = useState("");
   const [isDrafting, setIsDrafting] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
-  const [showGoogleModal, setShowGoogleModal] = useState(false);
-  const [googleToken, setGoogleToken] = useState("");
-  const [syncStatus, setSyncStatus] = useState("Connected to Workspace (charanchandra1006@gmail.com)");
+  const [syncStatus, setSyncStatus] = useState("API Connection Required");
   const [isRealApiConnected, setIsRealApiConnected] = useState(false);
-  const [tokenSavedAt, setTokenSavedAt] = useState<number | null>(null);
-  const [tokenAgeMinutes, setTokenAgeMinutes] = useState<number | null>(null);
   const [isTokenExpired, setIsTokenExpired] = useState(false);
 
   useEffect(() => {
-    const savedToken = localStorage.getItem("google_oauth_token");
-    const savedAt = localStorage.getItem("google_oauth_token_saved_at");
-    if (savedToken) {
-      setGoogleToken(savedToken);
-      if (savedAt) {
-        const savedAtMs = parseInt(savedAt, 10);
-        const ageMs = Date.now() - savedAtMs;
-        const ageMins = Math.floor(ageMs / 60000);
-        setTokenSavedAt(savedAtMs);
-        setTokenAgeMinutes(ageMins);
-        if (ageMins >= 55) {
-          // Token is close to or past 1-hour expiry
-          setIsTokenExpired(true);
-          setSyncStatus("Token expired. Please generate a new OAuth token from Google OAuth Playground.");
-        } else {
-          setIsRealApiConnected(true);
-          fetchRealGmailData(savedToken);
-        }
-      } else {
-        setIsRealApiConnected(true);
-        fetchRealGmailData(savedToken);
-      }
-    }
+    checkGoogleConnection();
   }, []);
 
-  const fetchRealGmailData = async (token: string) => {
-    setIsSyncing(true);
-    setSyncStatus("Fetching live emails from Gmail API...");
+  const checkGoogleConnection = async () => {
     try {
-      // Use server-side proxy to avoid CORS restrictions
-      const response = await fetch("/api/google/gmail?maxResults=6", {
+      const chiefToken = localStorage.getItem("chief_token");
+      if (!chiefToken) return;
+
+      const payload = JSON.parse(atob(chiefToken.split('.')[1]));
+      const tenantId = payload.tenant_id;
+
+      // Check with gateway if Gmail scopes are granted
+      const res = await fetch(`http://localhost:8002/auth/google/scopes?tenant_id=${tenantId}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.granted && data.granted.gmail) {
+          setIsRealApiConnected(true);
+          setSyncStatus("Connected to Workspace via OAuth");
+          fetchRealEmails(chiefToken);
+        } else {
+          setIsRealApiConnected(false);
+          setSyncStatus("Gmail API disconnected. Connection required.");
+        }
+      }
+    } catch (e) {
+      console.warn("Failed to check Google scopes", e);
+    }
+  };
+
+  const fetchRealEmails = async (token: string) => {
+    setIsSyncing(true);
+    setSyncStatus("Fetching live emails via Gateway...");
+    try {
+      const response = await fetch("http://localhost:8002/execute/read", {
+        method: "POST",
         headers: {
-          Authorization: `Bearer ${token.trim()}`,
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
         },
+        body: JSON.stringify({
+          provider: "google",
+          operation: "get_recent_emails",
+          params: { max_results: 5 }
+        })
       });
-
+      
       const data = await response.json();
-
       if (!response.ok) {
-        const detail = data?.detail?.error?.message || data?.error || "Token may be expired or missing required scopes.";
-        setSyncStatus(`Connection failed: ${detail}`);
+        setSyncStatus(`Connection failed: ${data.detail || "Unknown error"}`);
         setIsRealApiConnected(false);
-        setIsSyncing(false);
         return;
       }
-
-      if (data.messages && data.messages.length > 0) {
-        const liveMessages = data.messages.map((msg: any) => ({
-          id: msg.id,
-          sender: msg.sender || "Unknown Sender",
-          senderEmail: msg.senderEmail || "unknown@gmail.com",
-          role: "Verified Gmail Sender",
-          subject: msg.subject || "(No Subject)",
-          category: "Investors",
-          time: msg.dateHeader ? new Date(msg.dateHeader).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "Live Sync",
-          priority: msg.unread ? "High" : "Medium",
-          tldr: msg.snippet,
-          body: msg.snippet + "\n\n[Full message retrieved via Gmail API proxy]",
-          read: !msg.unread,
-        }));
-        setEmails(liveMessages);
-        setIsRealApiConnected(true);
-        setSyncStatus(`Live Gmail API Active — ${liveMessages.length} messages loaded (charanchandra1006@gmail.com)`);
-      } else {
-        setSyncStatus("Gmail API connected. No messages found in inbox.");
-        setIsRealApiConnected(true);
+      
+      if (data.data && data.data.emails) {
+        setEmails(data.data.emails);
+        setSyncStatus("Live Gmail Connected");
       }
     } catch (err: any) {
-      console.error("Gmail proxy error:", err);
-      setIsRealApiConnected(false);
-      setSyncStatus(`Error: ${err.message || "Could not reach Gmail proxy. Check console."}`);
+      setSyncStatus(`Error: ${err.message}`);
     } finally {
       setIsSyncing(false);
     }
   };
 
   const handleSyncNow = () => {
-    const token = localStorage.getItem("google_oauth_token") || googleToken;
-    if (token && token.trim().length > 10) {
-      fetchRealGmailData(token.trim());
-    } else {
-      // No token saved — open the API settings modal
-      setSyncStatus("No OAuth token saved. Click 'API Settings' to connect your Gmail.");
-      setShowGoogleModal(true);
-    }
-  };
-
-  const handleSaveToken = (e: React.FormEvent) => {
-    e.preventDefault();
-    const trimmed = googleToken.trim();
-    if (trimmed) {
-      localStorage.setItem("google_oauth_token", trimmed);
-      localStorage.setItem("google_oauth_token_saved_at", Date.now().toString());
-      setTokenSavedAt(Date.now());
-      setTokenAgeMinutes(0);
-      setIsTokenExpired(false);
-      setIsRealApiConnected(true);
-      setShowGoogleModal(false);
-      fetchRealGmailData(trimmed);
-    } else {
-      localStorage.removeItem("google_oauth_token");
-      localStorage.removeItem("google_oauth_token_saved_at");
-      setTokenSavedAt(null);
-      setTokenAgeMinutes(null);
-      setIsTokenExpired(false);
-      setIsRealApiConnected(false);
-      setShowGoogleModal(false);
-      setEmails(defaultEmails);
-      setSyncStatus("Connected to Workspace (charanchandra1006@gmail.com)");
+    try {
+      const token = localStorage.getItem("chief_token");
+      if (!token) throw new Error("No chief_token found");
+      const payload = JSON.parse(atob(token.split('.')[1]));
+      const tenantId = payload.tenant_id;
+      window.location.href = `http://localhost:8002/auth/google/incremental?tenant_id=${tenantId}&service=gmail`;
+    } catch (e) {
+      alert("Please log in first to connect Gmail.");
     }
   };
 
@@ -197,7 +102,7 @@ export function ImportantEmails() {
     setIsDrafting(true);
     setTimeout(() => {
       setReplyDraft(
-        `Hi ${selectedEmail.sender.split(" ")[0]},\n\nThank you for reaching out. I have reviewed your message and confirmed alignment with our current operating roadmap.\n\nLet's schedule a brief sync early next week to discuss next steps.\n\nBest regards,\nCharan Chandra\nFounder & CEO, VisionAI Technologies\ncharanchandra1006@gmail.com`
+        `Hi ${selectedEmail.sender.split(" ")[0]},\n\nThank you for reaching out. I have reviewed your message.\n\nLet's schedule a brief sync early next week to discuss next steps.\n\nBest regards,\nFounder & CEO\ncharanchandra1006@gmail.com`
       );
       setIsDrafting(false);
     }, 800);
@@ -240,11 +145,11 @@ export function ImportantEmails() {
             <span>{isSyncing ? "Syncing..." : "Sync Gmail"}</span>
           </button>
           <button
-            onClick={() => setShowGoogleModal(true)}
+            onClick={handleSyncNow}
             className="px-3 py-1.5 rounded-lg bg-black hover:bg-neutral-800 text-white font-bold text-xs flex items-center gap-1.5 shadow-sm transition-colors cursor-pointer"
           >
             <Key className="h-3.5 w-3.5" />
-            <span>API Settings</span>
+            <span>Connect Gmail</span>
           </button>
         </div>
       </div>
@@ -284,6 +189,13 @@ export function ImportantEmails() {
 
       {/* Email List */}
       <div className="space-y-2.5">
+        {filteredEmails.length === 0 && (
+          <div className="p-10 rounded-xl bg-neutral-50 border border-dashed border-neutral-300 text-center space-y-2">
+            <Mail className="h-5 w-5 text-neutral-400 mx-auto" />
+            <p className="text-xs font-medium text-neutral-600">No emails connected</p>
+            <p className="text-[11px] text-neutral-400">Click &quot;Connect Gmail&quot; to securely authorize your inbox via OAuth.</p>
+          </div>
+        )}
         {filteredEmails.map((e) => (
           <div
             key={e.id}
@@ -333,118 +245,7 @@ export function ImportantEmails() {
         ))}
       </div>
 
-      {/* Google Workspace API Settings Modal */}
-      {showGoogleModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
-          <div className="w-full max-w-lg rounded-2xl bg-white border border-neutral-200 shadow-2xl p-6 relative overflow-hidden animate-in zoom-in-95 duration-200 space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-neutral-200">
-              <div className="flex items-center gap-2">
-                <Key className="h-4 w-4 text-black" />
-                <h4 className="text-sm font-bold text-black">Google Gmail API Connector</h4>
-              </div>
-              <button
-                onClick={() => setShowGoogleModal(false)}
-                className="p-1 rounded-lg text-neutral-400 hover:text-black hover:bg-neutral-100 transition-colors"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-
-            {/* Token Expiry Warning */}
-            {isTokenExpired && (
-              <div className="p-3.5 rounded-xl bg-red-50 border border-red-200 text-xs space-y-1">
-                <span className="font-extrabold text-red-700 block font-mono uppercase tracking-wider">Token Expired</span>
-                <p className="text-red-600 leading-relaxed">
-                  Your OAuth token was saved {tokenAgeMinutes ?? "60"}+ minutes ago. Google tokens expire after <strong>1 hour</strong>. You must generate a fresh token from OAuth Playground.
-                </p>
-              </div>
-            )}
-
-            {/* Step-by-step instructions */}
-            <div className="p-4 rounded-xl bg-neutral-50 border border-neutral-200 space-y-3">
-              <span className="text-[10px] font-mono font-extrabold text-black uppercase tracking-wider block">How to get a fresh token (takes 90 seconds)</span>
-              <ol className="space-y-2.5">
-                {[
-                  { step: "1", text: "Open Google OAuth 2.0 Playground", sub: "Click the link below to open it in a new tab", action: (
-                    <a
-                      href="https://developers.google.com/oauthplayground/"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-black text-white text-[10px] font-mono font-bold hover:bg-neutral-800 transition-colors cursor-pointer"
-                    >
-                      <ExternalLink className="h-3 w-3" />
-                      Open OAuth Playground
-                    </a>
-                  ) },
-                  { step: "2", text: "In Step 1: Select & authorize APIs", sub: "Search for and select this scope:", action: (
-                    <code className="block text-[10px] bg-neutral-200 rounded px-2 py-1 font-mono text-black mt-1 select-all">https://www.googleapis.com/auth/gmail.readonly</code>
-                  ) },
-                  { step: "3", text: "Click \"Authorize APIs\" and sign in", sub: "Sign in with charanchandra1006@gmail.com when prompted.", action: null },
-                  { step: "4", text: "Click \"Exchange authorization code for tokens\"", sub: "Then copy the Access Token from the response box.", action: null },
-                  { step: "5", text: "Paste the Access Token below and click Connect", sub: "Tokens are valid for 1 hour. Regenerate when expired.", action: null },
-                ].map(({ step, text, sub, action }) => (
-                  <li key={step} className="flex items-start gap-3">
-                    <span className="h-5 w-5 rounded-full bg-black text-white text-[10px] font-mono font-bold flex items-center justify-center shrink-0 mt-0.5">{step}</span>
-                    <div className="min-w-0">
-                      <span className="text-xs font-semibold text-black block">{text}</span>
-                      <span className="text-[11px] text-neutral-500 leading-relaxed">{sub}</span>
-                      {action && <div className="mt-1.5">{action}</div>}
-                    </div>
-                  </li>
-                ))}
-              </ol>
-            </div>
-
-            <form onSubmit={handleSaveToken} className="space-y-3">
-              <div>
-                <label className="block text-xs font-bold text-black mb-1 font-mono">
-                  Paste Access Token Here
-                </label>
-                <input
-                  type="text"
-                  value={googleToken}
-                  onChange={(e) => setGoogleToken(e.target.value)}
-                  placeholder="ya29.a0A..."
-                  className="w-full p-3 rounded-xl bg-neutral-50 border border-neutral-300 text-xs text-black font-mono focus:outline-none focus:border-black transition-colors"
-                />
-                <p className="text-[10px] text-neutral-400 mt-1 font-mono">
-                  Token starts with <strong>ya29.</strong> — paste the full string, do NOT include the word &quot;Bearer&quot;
-                </p>
-              </div>
-
-              <div className="pt-4 border-t border-neutral-200 flex items-center justify-between gap-2.5">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setGoogleToken("");
-                    localStorage.removeItem("google_oauth_token");
-                    localStorage.removeItem("google_oauth_token_saved_at");
-                    setIsRealApiConnected(false);
-                    setIsTokenExpired(false);
-                    setTokenAgeMinutes(null);
-                    setEmails(defaultEmails);
-                    setShowGoogleModal(false);
-                    setSyncStatus("Disconnected. Showing workspace defaults.");
-                  }}
-                  className="px-3.5 py-2 rounded-xl bg-neutral-100 hover:bg-neutral-200 text-neutral-700 text-xs font-medium transition-colors cursor-pointer border border-neutral-300"
-                >
-                  Disconnect
-                </button>
-                <button
-                  type="submit"
-                  disabled={!googleToken.trim()}
-                  className="px-5 py-2 rounded-xl bg-black hover:bg-neutral-800 text-white font-bold text-xs shadow-sm flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  <CheckCircle2 className="h-3.5 w-3.5" />
-                  <span>Connect Gmail</span>
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Email Reader & Reply Modal */}
+      {/* Email Details Modal */}
       {selectedEmail && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
           <div className="w-full max-w-2xl rounded-2xl bg-white border border-neutral-200 shadow-2xl p-6 relative overflow-hidden animate-in zoom-in-95 duration-200 max-h-[90vh] flex flex-col">

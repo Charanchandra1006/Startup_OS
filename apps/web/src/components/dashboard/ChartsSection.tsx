@@ -7,19 +7,17 @@ export function ChartsSection() {
   const [timeframe, setTimeframe] = useState("30D");
 
   const revenueData = [
-    { day: "Day 1", value: 82000, label: "$82.0k" },
-    { day: "Day 5", value: 89000, label: "$89.0k" },
-    { day: "Day 10", value: 94000, label: "$94.0k" },
-    { day: "Day 15", value: 102000, label: "$102.0k" },
-    { day: "Day 20", value: 111160, label: "$111.1k" },
-    { day: "Day 25", value: 118000, label: "$118.0k" },
-    { day: "Today", value: 124500, label: "$124.5k" },
+    { day: "Day 1", value: 0, label: "$0.0k" },
+    { day: "Day 5", value: 0, label: "$0.0k" },
+    { day: "Day 10", value: 0, label: "$0.0k" },
+    { day: "Day 15", value: 0, label: "$0.0k" },
+    { day: "Day 20", value: 0, label: "$0.0k" },
+    { day: "Day 25", value: 0, label: "$0.0k" },
+    { day: "Today", value: 0, label: "$0.0k" },
   ];
 
   const expenseBreakdown = [
-    { category: "GPU & Cloud Infrastructure (AWS / GCP)", amount: "$42,100", percentage: 49, color: "bg-black" },
-    { category: "Engineering & Autonomous R&D Stipends", amount: "$28,900", percentage: 34, color: "bg-neutral-600" },
-    { category: "Corporate Governance & Legal Operations", amount: "$14,000", percentage: 17, color: "bg-neutral-300" },
+    { category: "Pending Data Connection", amount: "$0", percentage: 100, color: "bg-neutral-200" },
   ];
 
   return (
@@ -74,17 +72,16 @@ export function ChartsSection() {
                   Revenue Growth Trajectory (ARR Velocity)
                 </span>
                 <div className="flex items-baseline gap-3 mt-1">
-                  <span className="text-3xl font-extrabold text-black font-mono tracking-tight">$3,420,000</span>
-                  <span className="text-xs font-mono font-bold text-black flex items-center gap-0.5 bg-neutral-100 px-2 py-0.5 rounded border border-neutral-300">
-                    <ArrowUpRight className="h-3.5 w-3.5" />
-                    <span>+18.4% MoM</span>
+                  <span className="text-3xl font-extrabold text-black font-mono tracking-tight">$0</span>
+                  <span className="text-xs font-mono font-bold text-neutral-400 flex items-center gap-0.5 bg-neutral-100 px-2 py-0.5 rounded border border-neutral-300">
+                    <span>—</span>
                   </span>
                 </div>
               </div>
 
               <div className="text-right hidden sm:block">
                 <span className="text-[10px] font-mono text-neutral-400 uppercase">Target Series A ARR</span>
-                <div className="text-sm font-mono font-bold text-neutral-700 mt-0.5">$3.0M (Exceeded)</div>
+                <div className="text-sm font-mono font-bold text-neutral-400 mt-0.5">Not set</div>
               </div>
             </div>
             <p className="text-xs text-neutral-500 font-normal">
@@ -109,13 +106,13 @@ export function ChartsSection() {
 
               {/* Area fill */}
               <path
-                d="M 0 160 L 100 140 L 200 120 L 300 95 L 400 65 L 500 45 L 600 20 L 600 200 L 0 200 Z"
+                d="M 0 200 L 100 200 L 200 200 L 300 200 L 400 200 L 500 200 L 600 200 L 600 200 L 0 200 Z"
                 fill="url(#revenueGradient)"
               />
 
               {/* Stroke path */}
               <path
-                d="M 0 160 L 100 140 L 200 120 L 300 95 L 400 65 L 500 45 L 600 20"
+                d="M 0 200 L 100 200 L 200 200 L 300 200 L 400 200 L 500 200 L 600 200"
                 fill="none"
                 stroke="#000000"
                 strokeWidth="2.5"
@@ -125,13 +122,13 @@ export function ChartsSection() {
 
               {/* Data points & tooltips */}
               {[
-                { x: 0, y: 160, val: "$82.0k" },
-                { x: 100, y: 140, val: "$89.0k" },
-                { x: 200, y: 120, val: "$94.0k" },
-                { x: 300, y: 95, val: "$102.0k" },
-                { x: 400, y: 65, val: "$111.1k" },
-                { x: 500, y: 45, val: "$118.0k" },
-                { x: 600, y: 20, val: "$124.5k (Today)" },
+                { x: 0, y: 200, val: "$0.0k" },
+                { x: 100, y: 200, val: "$0.0k" },
+                { x: 200, y: 200, val: "$0.0k" },
+                { x: 300, y: 200, val: "$0.0k" },
+                { x: 400, y: 200, val: "$0.0k" },
+                { x: 500, y: 200, val: "$0.0k" },
+                { x: 600, y: 200, val: "$0.0k (Today)" },
               ].map((pt, i) => (
                 <g key={i} className="group/pt">
                   <circle
@@ -170,13 +167,13 @@ export function ChartsSection() {
               <span className="text-[11px] font-mono text-neutral-500 uppercase tracking-wider font-semibold">
                 Monthly Burn Breakdown
               </span>
-              <span className="text-xs font-mono font-bold text-black">$85,000 / mo</span>
+              <span className="text-xs font-mono font-bold text-neutral-400">$0 / mo</span>
             </div>
             <h4 className="text-base font-bold text-black tracking-tight">
               Operating Spend Allocation
             </h4>
             <p className="text-xs text-neutral-500 mt-1">
-              AI CFO audits infrastructure and payroll efficiency daily to maintain 40.2 mo runway.
+              Connect finance integrations to begin analyzing your runway and spend.
             </p>
           </div>
 

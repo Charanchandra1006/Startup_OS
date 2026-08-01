@@ -74,7 +74,7 @@ services:
       - SCRIPT_PATH=services/tool-gateway/tool_gateway.py
       - PYTHONPATH=/app:/app/packages/shared-types/python
     ports:
-      - "8052:8002"
+      - "8002:8002"
     
   # 6. Finance Agent (Python)
   agent-finance:
