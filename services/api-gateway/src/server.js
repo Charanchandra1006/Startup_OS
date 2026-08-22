@@ -185,6 +185,10 @@ async function mapTenantMiddleware(req, res, next) {
 
 // ─── Authenticated Routes ────────────────────────────────────────────────────
 
+// Mount integration routes for syncing OAuth tokens
+const integrationsRoutes = require('./routes/integrations');
+app.use('/api/integrations', mapTenantMiddleware, integrationsRoutes);
+
 // All routes below this line require Clerk authentication
 app.use('/api', clerkMiddleware(), requireAuth(), mapTenantMiddleware);
 

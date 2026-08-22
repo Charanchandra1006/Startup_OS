@@ -891,6 +891,28 @@ async def google_callback(state: str, code: str, request: Request):
             status_code=500
         )
 
+@app.post("/internal/vault/google")
+async def store_google_token(req: dict, request: Request):
+    """
+    Internal endpoint to store Google tokens synced from Clerk (via API Gateway).
+    In production, secure this with an internal shared secret.
+    """
+    tenant_id = req.get("tenant_id")
+    payload = req.get("payload")
+    
+    if not tenant_id or not payload:
+        raise HTTPException(status_code=400, detail="Missing tenant_id or payload")
+        
+    from vault import vault
+    
+    # Store in vault
+    vault.store_credential("google_workspace", tenant_id, payload)
+    # Also store under legacy "google" provider name for backward compatibility
+    vault.store_credential("google", tenant_id, payload)
+    
+    logger.info(f"Stored Google token for tenant {tenant_id} via internal sync")
+    return {"status": "success", "message": "Token stored in vault"}
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8002)
