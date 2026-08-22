@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
-import { AuthScreen } from "@/components/dashboard/AuthScreen";
+import React, { useState } from "react";
+import { useUser, useClerk } from "@clerk/nextjs";
 import { Sidebar, NavTab } from "@/components/dashboard/Sidebar";
 import { TopNav } from "@/components/dashboard/TopNav";
 import { HealthOverview } from "@/components/dashboard/HealthOverview";
@@ -16,67 +16,15 @@ import { ChartsSection } from "@/components/dashboard/ChartsSection";
 import { SettingsView } from "@/components/dashboard/SettingsView";
 
 export default function FounderDashboardPage() {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const { user, isLoaded } = useUser();
+  const { signOut } = useClerk();
   const [activeTab, setActiveTab] = useState<NavTab>("dashboard");
-  const [founderName, setFounderName] = useState("Charan Chandra");
-  const [founderEmail, setFounderEmail] = useState("charan@visionai.tech");
-  const [authError, setAuthError] = useState("");
 
-  useEffect(() => {
-    // 1. Check for Google OAuth callback params in URL (after Google redirect)
-    const params = new URLSearchParams(window.location.search);
-    const googleToken = params.get("google_access_token");
-    const googleSavedAt = params.get("google_token_saved_at");
-    const urlName = params.get("user_name");
-    const urlEmail = params.get("user_email");
-    const urlPicture = params.get("user_picture");
-    const urlAuthError = params.get("auth_error");
-
-    if (urlAuthError) {
-      setAuthError(decodeURIComponent(urlAuthError));
-      // Clean URL
-      window.history.replaceState({}, "", "/");
-    }
-
-    if (googleToken && urlEmail) {
-      // Google OAuth flow completed — store everything
-      localStorage.setItem("google_oauth_token", googleToken);
-      if (googleSavedAt) localStorage.setItem("google_oauth_token_saved_at", googleSavedAt);
-      const name = urlName || "Founder";
-      const email = urlEmail;
-      localStorage.setItem("chief_user_name", name);
-      localStorage.setItem("chief_user_email", email);
-      localStorage.setItem("chief_token", `google_${Date.now()}`); // mark as authenticated
-      if (urlPicture) localStorage.setItem("chief_user_picture", urlPicture);
-      setFounderName(name);
-      setFounderEmail(email);
-      setIsAuthenticated(true);
-      // Clean URL so token doesn't sit in browser history
-      window.history.replaceState({}, "", "/");
-      return;
-    }
-
-    // 2. Check for existing local session
-    const savedToken = localStorage.getItem("chief_token");
-    const savedName = localStorage.getItem("chief_user_name");
-    const savedEmail = localStorage.getItem("chief_user_email");
-    if (savedToken) {
-      if (savedName) setFounderName(savedName);
-      if (savedEmail) setFounderEmail(savedEmail);
-      setIsAuthenticated(true);
-    }
-  }, []);
-
-  if (!isAuthenticated) {
+  if (!isLoaded || !user) {
     return (
-      <AuthScreen
-        authError={authError}
-        onLogin={(name, email) => {
-          if (name) setFounderName(name);
-          if (email) setFounderEmail(email);
-          setIsAuthenticated(true);
-        }}
-      />
+      <div className="flex items-center justify-center h-screen w-full bg-white text-black">
+        <div className="h-6 w-6 border-2 border-neutral-300 border-t-black rounded-full animate-spin" />
+      </div>
     );
   }
 
@@ -85,7 +33,9 @@ export default function FounderDashboardPage() {
     if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
     return name.slice(0, 2).toUpperCase();
   };
+  const founderName = user.fullName || user.firstName || "Founder";
   const founderInitials = getInitials(founderName);
+  const founderImageUrl = user.imageUrl;
 
   const renderContent = () => {
     switch (activeTab) {
@@ -95,12 +45,16 @@ export default function FounderDashboardPage() {
             {/* Minimalist Executive Greeting & Pulse Header */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-6 rounded-2xl bg-white border border-neutral-200 shadow-sm">
               <div className="flex items-center gap-3.5">
-                <div className="h-10 w-10 rounded-xl bg-black text-white flex items-center justify-center font-bold text-sm shadow-xs shrink-0">
-                  {founderInitials}
-                </div>
+                {founderImageUrl ? (
+                  <img src={founderImageUrl} alt={founderName} className="h-10 w-10 rounded-xl shadow-xs shrink-0 object-cover" />
+                ) : (
+                  <div className="h-10 w-10 rounded-xl bg-black text-white flex items-center justify-center font-bold text-sm shadow-xs shrink-0">
+                    {founderInitials}
+                  </div>
+                )}
                 <div>
                   <h2 className="text-base font-bold text-black tracking-tight">
-                    Good morning, {founderName.split(" ")[0]}.
+                    Good morning, {user.firstName || "Founder"}.
                   </h2>
                   <p className="text-xs text-neutral-500 mt-0.5">
                     Your 8 autonomous executives are active. 4 critical decisions require sign-off today.
@@ -197,13 +151,7 @@ export default function FounderDashboardPage() {
         setActiveTab={setActiveTab}
         founderName={founderName}
         founderInitials={founderInitials}
-        onLogout={() => {
-          localStorage.removeItem("chief_token");
-          localStorage.removeItem("chief_user_name");
-          localStorage.removeItem("chief_user_email");
-          setIsAuthenticated(false);
-          setActiveTab("dashboard");
-        }}
+        onLogout={() => signOut()}
       />
 
       {/* Main Content Area */}

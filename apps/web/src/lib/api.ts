@@ -1,43 +1,21 @@
 export const API_BASE_URL = typeof window !== 'undefined' 
   ? `${window.location.protocol}//${window.location.hostname}:4000/api` 
   : "http://localhost:4000/api";
-export const DEV_TOKEN_URL = typeof window !== 'undefined'
-  ? `${window.location.protocol}//${window.location.hostname}:4000/dev/token`
-  : "http://localhost:4000/dev/token";
+
 
 let currentToken: string | null = null;
 
-/**
- * Helper to get the dev token (mocking real auth for now).
- * In production, this would be handled by Auth0/Clerk middleware.
- */
 export async function getAuthToken(): Promise<string> {
-  if (typeof window !== "undefined") {
-    const token = localStorage.getItem("chief_token");
+  if (typeof window !== "undefined" && (window as any).Clerk?.session) {
+    const token = await (window as any).Clerk.session.getToken();
     if (token) return token;
   }
   
-  // Only fallback to dev token if we're entirely lacking one (e.g. initial demo setup)
-  // In a real prod env, we'd throw an error or redirect to login here.
-  const res = await fetch(DEV_TOKEN_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      tenant_id: "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
-      user_id: "b1eebc99-9c0b-4ef8-bb6d-6bb9bd380a22",
-      role: "founder"
-    })
-  });
+  // Fallback if not authenticated via Clerk yet
+  const fallback = typeof window !== "undefined" ? localStorage.getItem("chief_token") : null;
+  if (fallback) return fallback;
 
-  if (!res.ok) {
-    throw new Error("Failed to fetch dev token");
-  }
-  
-  const data = await res.json();
-  if (typeof window !== "undefined") {
-    localStorage.setItem("chief_token", data.token);
-  }
-  return data.token;
+  throw new Error("No Clerk session found. User must be signed in.");
 }
 
 /**

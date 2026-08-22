@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import { UserButton } from "@clerk/nextjs";
 import { 
   LayoutDashboard, 
   Terminal, 
@@ -119,21 +120,12 @@ export function Sidebar({ activeTab, setActiveTab, onLogout, founderName = "Char
 
         <div className="flex items-center justify-between px-1 pt-1">
           <div className="flex items-center gap-2.5">
-            <div className="h-6 w-6 rounded-full bg-neutral-900 border border-neutral-800 flex items-center justify-center text-[10px] font-bold text-white">
-              {founderInitials}
-            </div>
+            <UserButton />
             <div className="text-left">
               <div className="text-xs font-medium text-black truncate max-w-[100px]">{founderName}</div>
               <div className="text-[10px] text-neutral-500">Founder & CEO</div>
             </div>
           </div>
-          <button
-            onClick={onLogout}
-            title="Sign out"
-            className="p-1.5 rounded-lg text-neutral-500 hover:text-black hover:bg-neutral-200 transition-colors cursor-pointer"
-          >
-            <LogOut className="h-3.5 w-3.5" />
-          </button>
         </div>
       </div>
     </aside>
