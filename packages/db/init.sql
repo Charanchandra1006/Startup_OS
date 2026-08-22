@@ -25,6 +25,20 @@ CREATE POLICY tenant_isolation_policy ON tenants
     USING (id = current_setting('app.current_tenant_id', true)::UUID);
 
 COMMENT ON TABLE tenants IS 'Multi-tenant company entities. DDD Â§2, SGD Â§1 Tier 3 (Operational).';
+
+-- ============================================================================
+-- Chief AI Startup OS â€” Operational Store
+-- Migration 001.5: Create Clerk Org to Tenant Mapping Table
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS clerk_org_tenant_map (
+    clerk_org_id    TEXT PRIMARY KEY,
+    tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+COMMENT ON TABLE clerk_org_tenant_map IS 'Maps Clerk Organization IDs to internal tenant_ids.';
+
 -- ============================================================================
 -- Chief AI Startup OS â€” Operational Store
 -- Migration 002: Create Users Table
@@ -36,7 +50,6 @@ CREATE TABLE IF NOT EXISTS users (
     tenant_id           UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
     email               VARCHAR(255) NOT NULL,
     name                VARCHAR(255),
-    password_hash       VARCHAR(255),
     role                VARCHAR(50) NOT NULL DEFAULT 'founder',
     auth_provider_ref   VARCHAR(255),  -- Reference to external auth provider user ID
     is_active           BOOLEAN NOT NULL DEFAULT true,
