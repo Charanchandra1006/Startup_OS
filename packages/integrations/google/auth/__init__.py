@@ -305,5 +305,3 @@ async def handle_google_callback(state: str, code: str, vault_store_fn):
                 "avatar_url": picture
             }
         }
-    finally:
-        await conn.close()

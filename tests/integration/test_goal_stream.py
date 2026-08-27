@@ -124,7 +124,7 @@ class TestGoalEventsPipeline:
                     assert "text/event-stream" in content_type, \
                         f"Expected text/event-stream, got {content_type}"
                     # Don't wait for events — just verify the connection works
-                    break
+                    pass
             except httpx.ReadTimeout:
                 # Timeout is expected since there are no events for a fake goal
                 pass

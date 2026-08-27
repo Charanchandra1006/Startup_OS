@@ -513,7 +513,7 @@ class ToolGateway:
             span.set_attribute("token.expires_at", token.expires_at.isoformat())
             return token
 
-    def execute_tool_call(
+    async def execute_tool_call(
         self,
         token_value: str,
         action_type: str,
@@ -691,7 +691,7 @@ async def execute_tool(
     authorization: str = Header(..., alias="X-Access-Token"),
 ):
     """Execute a tool call through the gateway."""
-    return gateway.execute_tool_call(
+    return await gateway.execute_tool_call(
         token_value=authorization,
         action_type=req.action_type,
         provider=req.provider,
@@ -733,7 +733,7 @@ async def execute_read(req: AgentToolCallRequest, request: Request):
         else:
             raise HTTPException(status_code=400, detail=result.error)
     
-    return gateway.execute_tool_call(
+    return await gateway.execute_tool_call(
         token_value=token_value,
         action_type=f"read_{req.operation}",
         provider=req.provider,
@@ -765,7 +765,7 @@ async def execute_write(req: AgentToolCallRequest, request: Request):
         else:
             raise HTTPException(status_code=400, detail=result.error)
     
-    return gateway.execute_tool_call(
+    return await gateway.execute_tool_call(
         token_value=token_value,
         action_type=f"write_{req.operation}",
         provider=req.provider,

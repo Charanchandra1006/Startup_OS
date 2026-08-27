@@ -52,7 +52,7 @@ def reset_tracing():
 
 @pytest.fixture
 def orchestrator():
-    orch = Orchestrator(available_agents=[AGENT_ID])
+    orch = Orchestrator()
 
     async def dispatch_to_echo(task: Task) -> AgentOutput:
         agent_input = AgentInput(

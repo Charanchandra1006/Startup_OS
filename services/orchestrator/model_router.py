@@ -167,6 +167,7 @@ class ModelRouter:
         task_description: str,
         system_prompt: str | None = None,
         force_tier: ModelTier | None = None,
+        response_format: Any = None,
     ) -> ModelCallResult:
         """
         Call an LLM via the model router with fallback support.
@@ -193,6 +194,7 @@ class ModelRouter:
                     prompt=prompt,
                     system_prompt=system_prompt,
                     max_tokens=model_config.max_tokens,
+                    response_format=response_format,
                 )
             except Exception as e:
                 logger.warning(f"Primary model {used_model} ({used_provider}) failed: {e}. Initiating fallback...")
@@ -218,6 +220,7 @@ class ModelRouter:
                     prompt=prompt,
                     system_prompt=system_prompt,
                     max_tokens=model_config.max_tokens,
+                    response_format=response_format,
                 )
             
             elapsed_ms = int((time.monotonic() - start) * 1000)

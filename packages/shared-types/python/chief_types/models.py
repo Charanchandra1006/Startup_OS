@@ -265,6 +265,9 @@ class ApprovalRequestModel(BaseModel):
     rationale: str
     contributing_agents: list[str] = Field(default_factory=list)
     status: ApprovalStatus = ApprovalStatus.PENDING
+    decided_by_user_id: Optional[UUID] = None
+    decided_at: Optional[datetime] = None
+    rejection_reason: Optional[str] = None
 
 
 # ─── Execution Log Entry ─────────────────────────────────────────────────────

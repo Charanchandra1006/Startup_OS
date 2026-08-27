@@ -130,7 +130,8 @@ class TestExecutionServiceIsolation:
 
 class TestToolGatewayIsolation:
 
-    def test_token_scoped_to_issuing_tenant(self):
+    @pytest.mark.asyncio
+    async def test_token_scoped_to_issuing_tenant(self):
         """Token issued for tenant A cannot be used for tenant B data."""
         gw = ToolGateway()
 
@@ -145,7 +146,7 @@ class TestToolGatewayIsolation:
         assert token_a.tenant_id == TENANT_A
 
         # Execute with the token — data is scoped to tenant A
-        result = gw.execute_tool_call(
+        result = await gw.execute_tool_call(
             token_value=token_a.token,
             action_type="generate_report",
             provider="mock_accounting",
