@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import { useAuth } from "@clerk/nextjs";
 import { Mail, ArrowUpRight, Sparkles, X, Check, Shield, User, Clock, Reply, CornerDownRight, RefreshCw, Key, ExternalLink, AlertCircle, CheckCircle2 } from "lucide-react";
 
 export function ImportantEmails() {
@@ -81,14 +82,20 @@ export function ImportantEmails() {
     }
   };
 
-  const handleSyncNow = () => {
+  const { getToken, orgId } = useAuth();
+
+  const handleSyncNow = async () => {
     try {
-      const token = localStorage.getItem("chief_token");
-      if (!token) throw new Error("No chief_token found");
+      const token = await getToken();
+      if (!token) throw new Error("No token found");
+      
       const payload = JSON.parse(atob(token.split('.')[1]));
-      const tenantId = payload.tenant_id;
+      // Use Clerk orgId if available, otherwise fallback to parsed tenant_id or user_id
+      const tenantId = orgId || payload.tenant_id || payload.sub;
+      
       window.location.href = `http://localhost:8002/auth/google/incremental?tenant_id=${tenantId}&service=gmail`;
     } catch (e) {
+      console.error(e);
       alert("Please log in first to connect Gmail.");
     }
   };

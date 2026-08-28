@@ -20,12 +20,20 @@ export default function FounderDashboardPage() {
   const { signOut } = useClerk();
   const [activeTab, setActiveTab] = useState<NavTab>("dashboard");
 
-  if (!isLoaded || !user) {
+  if (!isLoaded) {
     return (
       <div className="flex items-center justify-center h-screen w-full bg-white text-black">
         <div className="h-6 w-6 border-2 border-neutral-300 border-t-black rounded-full animate-spin" />
       </div>
     );
+  }
+
+  if (!user) {
+    // If not signed in, render the Clerk sign-in redirect or push them there
+    if (typeof window !== "undefined") {
+      window.location.href = "/sign-in";
+    }
+    return null;
   }
 
   const getInitials = (name: string) => {
