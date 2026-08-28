@@ -15,6 +15,26 @@ from openai import AsyncOpenAI
 
 logger = logging.getLogger("chief.llm")
 
+class ContextCompressor:
+    """Optimizes LLM context windows to reduce latency and API costs."""
+    
+    @staticmethod
+    def compress_context(context: str, max_chars: int = 16000) -> str:
+        """
+        Compress context using heuristic truncation for Phase 0.
+        Future: semantic truncation via embeddings.
+        """
+        if not context or len(context) <= max_chars:
+            return context or ""
+            
+        # Keep the first 20% (often system setup/instructions) 
+        # and last 80% (often recent contextual history)
+        prefix_len = int(max_chars * 0.2)
+        suffix_len = max_chars - prefix_len - 50  # buffer for warning text
+        
+        compressed = context[:prefix_len] + "\n\n...[CONTEXT COMPRESSED TO SAVE TOKENS]...\n\n" + context[-suffix_len:]
+        return compressed
+
 
 class LLMClient:
     """Unified client for OpenAI and Gemini."""

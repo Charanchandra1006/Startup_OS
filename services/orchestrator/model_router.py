@@ -187,11 +187,14 @@ class ModelRouter:
             used_provider = model_config.provider
 
             try:
+                from chief_types.llm_client import ContextCompressor
+                compressed_prompt = ContextCompressor.compress_context(prompt)
+                
                 # Primary Provider Call
                 content, prompt_tokens, completion_tokens = await self._llm_client.generate(
                     provider=model_config.provider,
                     model_id=model_config.model_id,
-                    prompt=prompt,
+                    prompt=compressed_prompt,
                     system_prompt=system_prompt,
                     max_tokens=model_config.max_tokens,
                     response_format=response_format,
@@ -217,7 +220,7 @@ class ModelRouter:
                 content, prompt_tokens, completion_tokens = await self._llm_client.generate(
                     provider=used_provider,
                     model_id=used_model,
-                    prompt=prompt,
+                    prompt=compressed_prompt,
                     system_prompt=system_prompt,
                     max_tokens=model_config.max_tokens,
                     response_format=response_format,

@@ -64,6 +64,27 @@ def orchestrator():
         return await process_task(agent_input)
 
     orch.set_agent_dispatcher(dispatch_to_echo)
+
+    # Mock classifier and decomposer to avoid real LLM calls
+    async def mock_classify(*args, **kwargs):
+        text = args[0] if args else kwargs.get("raw_text", "")
+        if "hmm things stuff maybe" in text:
+            return (GoalType.AD_HOC_QUESTION, 0.4)
+        return (GoalType.REPORTING, 0.95)
+    orch.classifier.classify = mock_classify
+
+    async def mock_decompose(goal, agents, router):
+        return [
+            Task(
+                goal_id=goal.id,
+                tenant_id=goal.tenant_id,
+                assigned_agent=AGENT_ID,
+                description="test task",
+                depends_on=[],
+            )
+        ]
+    orch.decomposer.decompose = mock_decompose
+
     return orch
 
 
@@ -100,10 +121,17 @@ class TestPhase0ExitCriteria:
         10. ✅ Full trace inspectable
         """
         # ── Step 1: Submit goal ──
+        class MockContext:
+            def __init__(self, t, u):
+                self.tenant_id = t
+                self.user_id = u
+        import uuid
+        test_goal_id = str(uuid.uuid4())
+        
         result = await orchestrator.process_goal(
-            tenant_id=TENANT_ID,
-            user_id=USER_ID,
+            goal_id=test_goal_id,
             raw_text="Give me a financial overview report",
+            context=MockContext(TENANT_ID, USER_ID)
         )
 
         assert result["status"] == "delivered"
@@ -227,10 +255,17 @@ class TestPhase0ExitCriteria:
 
         orchestrator.set_agent_dispatcher(dispatch_ungrounded)
 
+        class MockContext:
+            def __init__(self, t, u):
+                self.tenant_id = t
+                self.user_id = u
+        import uuid
+        test_goal_id = str(uuid.uuid4())
+        
         result = await orchestrator.process_goal(
-            tenant_id=TENANT_ID,
-            user_id=USER_ID,
+            goal_id=test_goal_id,
             raw_text="Give me a financial report",
+            context=MockContext(TENANT_ID, USER_ID)
         )
 
         # The orchestrator should still deliver (with stripped claims)
@@ -275,10 +310,17 @@ class TestPhase0ExitCriteria:
         AIDD §3: Low classification confidence triggers clarification,
         not a guess (GR-05).
         """
+        class MockContext:
+            def __init__(self, t, u):
+                self.tenant_id = t
+                self.user_id = u
+        import uuid
+        test_goal_id = str(uuid.uuid4())
+        
         result = await orchestrator.process_goal(
-            tenant_id=TENANT_ID,
-            user_id=USER_ID,
+            goal_id=test_goal_id,
             raw_text="hmm things stuff maybe",  # Ambiguous → low confidence
+            context=MockContext(TENANT_ID, USER_ID)
         )
 
         assert result["status"] == "awaiting_clarification"

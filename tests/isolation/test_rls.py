@@ -14,6 +14,12 @@ import sys
 import uuid
 import pytest
 import asyncio
+import os
+
+if not os.environ.get("DATABASE_URL"):
+    pytest.skip("DATABASE_URL not set — skipping RLS tests", allow_module_level=True)
+
+pytestmark = pytest.mark.asyncio(loop_scope="module")
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../packages/shared-types/python")))
 
@@ -30,12 +36,6 @@ def db_url():
         pytest.skip("DATABASE_URL not set — skipping RLS tests")
     return url.replace("postgresql+asyncpg://", "postgresql://").split("?")[0]
 
-
-@pytest.fixture(scope="module")
-def event_loop():
-    loop = asyncio.new_event_loop()
-    yield loop
-    loop.close()
 
 
 @pytest.fixture(scope="module")
@@ -100,7 +100,6 @@ async def seed_data(db_pool):
         await conn.execute("DELETE FROM tenants WHERE id IN ($1, $2)", uuid.UUID(TENANT_A), uuid.UUID(TENANT_B))
 
 
-@pytest.mark.asyncio
 class TestGoalEventsRLS:
     """Test RLS on the goal_events table."""
 
@@ -135,7 +134,6 @@ class TestGoalEventsRLS:
                 f"Random tenant saw {len(rows)} rows, expected 0"
 
 
-@pytest.mark.asyncio
 class TestGoalsRLS:
     """Test RLS on the goals table."""
 

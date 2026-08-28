@@ -47,6 +47,18 @@ class DispatchResult:
         return len(self.completed) > 0
 
 
+class PredictiveResultCache:
+    """In-memory predictive cache for latency reduction."""
+    def __init__(self):
+        self._cache = {}
+
+    def get(self, cache_key: str) -> AgentOutput | None:
+        return self._cache.get(cache_key)
+
+    def set(self, cache_key: str, output: AgentOutput) -> None:
+        self._cache[cache_key] = output
+
+
 class Dispatcher:
     """
     Dispatches tasks to specialist agents with dependency resolution.
@@ -61,10 +73,15 @@ class Dispatcher:
 
     DEFAULT_TIMEOUT_MS = 60_000       # 60s for Standard tier
     FRONTIER_TIMEOUT_MS = 120_000     # 120s for Frontier tier
-    MAX_CONCURRENT_TASKS = 5          # Limit concurrent dispatches
-
+    
     def __init__(self):
         self.tracer = get_tracer("dispatcher")
+        self.cache = PredictiveResultCache()
+
+    def _get_dynamic_concurrency(self, ready_count: int) -> int:
+        """Dynamic workload partitioning based on queue size."""
+        # Baseline concurrency is 5, but can scale up to 20 for large parallel fan-outs
+        return max(5, min(20, ready_count))
 
     async def dispatch_all(
         self,
@@ -111,9 +128,17 @@ class Dispatcher:
                     break
 
                 # Dispatch ready tasks in parallel (bounded concurrency)
-                semaphore = asyncio.Semaphore(self.MAX_CONCURRENT_TASKS)
+                dynamic_limit = self._get_dynamic_concurrency(len(ready))
+                semaphore = asyncio.Semaphore(dynamic_limit)
 
                 async def _dispatch_one(task: Any) -> tuple[str, AgentOutput | None, str | None]:
+                    cache_key = f"{task.assigned_agent}:{hash(task.description)}"
+                    cached_result = self.cache.get(cache_key)
+                    if cached_result:
+                        task.status = TaskStatus.COMPLETED
+                        task.completed_at = datetime.now(timezone.utc)
+                        return (task.id, cached_result, None)
+
                     async with semaphore:
                         task.status = TaskStatus.DISPATCHED
                         task.started_at = datetime.now(timezone.utc)
@@ -126,6 +151,7 @@ class Dispatcher:
                             )
                             task.status = TaskStatus.COMPLETED
                             task.completed_at = datetime.now(timezone.utc)
+                            self.cache.set(cache_key, output)
                             return (task.id, output, None)
                         except asyncio.TimeoutError:
                             task.status = TaskStatus.TIMED_OUT

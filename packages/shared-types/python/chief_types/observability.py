@@ -94,6 +94,14 @@ class AgentRunSpan(TraceContext):
         self.set_attribute("agent.task_id", task_id)
         self.set_attribute("agent.tenant_id", tenant_id)
 
+    MODEL_COSTS = {
+        "gemini-1.5-flash": {"prompt": 0.075 / 1_000_000, "completion": 0.30 / 1_000_000},
+        "gemini-1.5-pro": {"prompt": 3.50 / 1_000_000, "completion": 10.50 / 1_000_000},
+        "gemini-2.0-flash": {"prompt": 0.10 / 1_000_000, "completion": 0.40 / 1_000_000},
+        "gpt-4o": {"prompt": 2.50 / 1_000_000, "completion": 10.00 / 1_000_000},
+        "gpt-4o-mini": {"prompt": 0.15 / 1_000_000, "completion": 0.60 / 1_000_000},
+    }
+
     def log_model_call(
         self,
         model_id: str,
@@ -103,17 +111,25 @@ class AgentRunSpan(TraceContext):
         latency_ms: int,
     ) -> None:
         """Log an AI model call with all required observability attributes."""
+        # Calculate cost
+        cost = 0.0
+        model_cost_info = self.MODEL_COSTS.get(model_id)
+        if model_cost_info:
+            cost = (prompt_tokens * model_cost_info["prompt"]) + (completion_tokens * model_cost_info["completion"])
+            
         self.set_attribute("ai.model_id", model_id)
         self.set_attribute("ai.prompt_version", prompt_version)
         self.set_attribute("ai.prompt_tokens", prompt_tokens)
         self.set_attribute("ai.completion_tokens", completion_tokens)
         self.set_attribute("ai.total_tokens", prompt_tokens + completion_tokens)
         self.set_attribute("ai.latency_ms", latency_ms)
+        self.set_attribute("ai.cost_usd", cost)
         self.add_event("model_call", {
             "model": model_id,
             "prompt_version": prompt_version,
             "tokens": prompt_tokens + completion_tokens,
             "latency_ms": latency_ms,
+            "cost_usd": cost,
         })
 
     def log_grounding_result(
