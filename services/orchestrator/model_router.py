@@ -68,7 +68,7 @@ class ModelCallResult:
 # ─── Model Configurations ───────────────────────────────────────────────────
 
 GEMINI_PRO_CONFIG = ModelConfig(
-    model_id="gemini-2.5-flash",
+    model_id="gemini-2.5-pro",
     provider="google",
     tier=ModelTier.COMPLEX_REASONING,
     max_tokens=8192,

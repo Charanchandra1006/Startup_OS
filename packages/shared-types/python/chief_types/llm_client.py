@@ -122,7 +122,7 @@ class LLMClient:
         
         client = self._get_gemini()
         
-        gemini_model_id = "gemini-2.5-flash"
+        gemini_model_id = model_id
         
         config_kwargs = {
             "temperature": temperature,
@@ -140,7 +140,7 @@ class LLMClient:
         
         config = types.GenerateContentConfig(**config_kwargs)
         
-        # google-genai AsyncClient uses aiosession internally if you call aio methods
+        # google-genai AsyncClient uses aio.models internally
         response = await client.aio.models.generate_content(
             model=gemini_model_id,
             contents=prompt,
@@ -149,13 +149,11 @@ class LLMClient:
         
         content = response.text
         
-        # Approximate token count since we don't always get it back cleanly in standard text requests
-        try:
-            prompt_resp = await client.aio.models.count_tokens(model=gemini_model_id, contents=prompt)
-            prompt_tokens = prompt_resp.total_tokens
-            comp_resp = await client.aio.models.count_tokens(model=gemini_model_id, contents=content)
-            completion_tokens = comp_resp.total_tokens
-        except Exception:
+        # Extract token counts directly from response metadata
+        if getattr(response, "usage_metadata", None):
+            prompt_tokens = response.usage_metadata.prompt_token_count or 0
+            completion_tokens = response.usage_metadata.candidates_token_count or 0
+        else:
             prompt_tokens = 0
             completion_tokens = 0
             
