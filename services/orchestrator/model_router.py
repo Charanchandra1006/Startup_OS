@@ -61,8 +61,21 @@ class ModelCallResult:
     prompt_tokens: int
     completion_tokens: int
     latency_ms: int
+    cost_usd: float = 0.0
     timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     was_fallback: bool = False
+
+def calculate_cost(model_id: str, prompt_tokens: int, completion_tokens: int) -> float:
+    """Calculate USD cost based on token usage and model tier."""
+    pricing = {
+        "gemini-2.5-pro": (1.25, 5.00),     # per 1M prompt, completion
+        "gemini-2.5-flash": (0.075, 0.30),
+        "gpt-4o": (5.00, 15.00),
+        "gpt-4o-mini": (0.15, 0.60),
+    }
+    rates = pricing.get(model_id, (0.0, 0.0))
+    return (prompt_tokens / 1_000_000.0) * rates[0] + (completion_tokens / 1_000_000.0) * rates[1]
+
 
 
 # ─── Model Configurations ───────────────────────────────────────────────────
@@ -188,7 +201,11 @@ class ModelRouter:
 
             try:
                 from chief_types.llm_client import ContextCompressor
-                compressed_prompt = ContextCompressor.compress_context(prompt)
+                
+                # Estimate 4 characters per token for context budget
+                # We leave some headroom (e.g. 80% of max_tokens) for the generated completion
+                context_budget_chars = int(model_config.max_tokens * 4 * 0.8)
+                compressed_prompt = ContextCompressor.compress_context(prompt, max_chars=context_budget_chars)
                 
                 # Primary Provider Call
                 content, prompt_tokens, completion_tokens = await self._llm_client.generate(
@@ -227,6 +244,7 @@ class ModelRouter:
                 )
             
             elapsed_ms = int((time.monotonic() - start) * 1000)
+            cost = calculate_cost(used_model, prompt_tokens, completion_tokens)
 
             result = ModelCallResult(
                 content=content,
@@ -236,6 +254,7 @@ class ModelRouter:
                 prompt_tokens=prompt_tokens,
                 completion_tokens=completion_tokens,
                 latency_ms=elapsed_ms,
+                cost_usd=cost,
                 was_fallback=was_fallback
             )
 
@@ -261,4 +280,5 @@ class ModelRouter:
             "tool_calls": len(tool_calls),
             "total_prompt_tokens": sum(r.prompt_tokens for r in self._call_history),
             "total_completion_tokens": sum(r.completion_tokens for r in self._call_history),
+            "total_cost_usd": sum(r.cost_usd for r in self._call_history),
         }

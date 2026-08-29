@@ -37,6 +37,7 @@ class DispatchResult:
         self.completed: dict[str, AgentOutput] = {}  # task_id → output
         self.failed: dict[str, str] = {}              # task_id → error
         self.timed_out: list[str] = []
+        self.latencies_ms: dict[str, int] = {}        # task_id → latency_ms
 
     @property
     def all_succeeded(self) -> bool:
@@ -131,13 +132,16 @@ class Dispatcher:
                 dynamic_limit = self._get_dynamic_concurrency(len(ready))
                 semaphore = asyncio.Semaphore(dynamic_limit)
 
-                async def _dispatch_one(task: Any) -> tuple[str, AgentOutput | None, str | None]:
+                async def _dispatch_one(task: Any) -> tuple[str, AgentOutput | None, str | None, int]:
+                    import time
+                    start_time = time.monotonic()
                     cache_key = f"{task.assigned_agent}:{hash(task.description)}"
                     cached_result = self.cache.get(cache_key)
                     if cached_result:
                         task.status = TaskStatus.COMPLETED
                         task.completed_at = datetime.now(timezone.utc)
-                        return (task.id, cached_result, None)
+                        latency = int((time.monotonic() - start_time) * 1000)
+                        return (task.id, cached_result, None, latency)
 
                     async with semaphore:
                         task.status = TaskStatus.DISPATCHED
@@ -152,25 +156,29 @@ class Dispatcher:
                             task.status = TaskStatus.COMPLETED
                             task.completed_at = datetime.now(timezone.utc)
                             self.cache.set(cache_key, output)
-                            return (task.id, output, None)
+                            latency = int((time.monotonic() - start_time) * 1000)
+                            return (task.id, output, None, latency)
                         except asyncio.TimeoutError:
                             task.status = TaskStatus.TIMED_OUT
                             task.error = f"Timed out after {timeout_s}s"
                             task.completed_at = datetime.now(timezone.utc)
-                            return (task.id, None, task.error)
+                            latency = int((time.monotonic() - start_time) * 1000)
+                            return (task.id, None, task.error, latency)
                         except Exception as e:
                             task.status = TaskStatus.FAILED
                             task.error = str(e)
                             task.completed_at = datetime.now(timezone.utc)
-                            return (task.id, None, str(e))
+                            latency = int((time.monotonic() - start_time) * 1000)
+                            return (task.id, None, str(e), latency)
 
                 dispatched = await asyncio.gather(
                     *[_dispatch_one(t) for t in ready],
                     return_exceptions=False,
                 )
 
-                for task_id, output, error in dispatched:
+                for task_id, output, error, latency in dispatched:
                     del remaining[task_id]
+                    result.latencies_ms[task_id] = latency
                     if output:
                         result.completed[task_id] = output
                         completed_ids.add(task_id)

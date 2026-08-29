@@ -599,8 +599,11 @@ class Orchestrator:
                 await self._publish_event(goal, "AWAITING_SPECIALIST_OUTPUT")
 
                 # Dispatch tasks to agents in parallel
+                max_latency = 0
                 if self._agent_dispatch_fn:
                     dispatch_result = await self.dispatcher.dispatch_all(tasks, self._agent_dispatch_fn)
+                    if dispatch_result.latencies_ms:
+                        max_latency = max(dispatch_result.latencies_ms.values())
                     
                     for task in tasks:
                         if task.id in dispatch_result.completed:
@@ -687,7 +690,15 @@ class Orchestrator:
                     goal.transition(GoalStatus.DELIVERED)
                     self.state = goal.status
                     self._update_db_status_sync(goal)
-                    await self._publish_event(goal, "DELIVERED", {"has_report": True})
+                    
+                    summary = self.router.get_summary()
+                    total_cost = summary.get("total_cost_usd", 0.0)
+                    
+                    await self._publish_event(goal, "DELIVERED", {
+                        "has_report": True,
+                        "total_cost_usd": total_cost,
+                        "max_agent_latency_ms": max_latency
+                    })
                     
                     span.set_status("OK")
                     return {
